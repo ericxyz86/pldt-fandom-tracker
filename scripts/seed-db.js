@@ -108,7 +108,7 @@ async function main() {
       if (!extId) continue;
       const hasContent = await sql`SELECT id FROM content_items WHERE external_id = ${extId} AND platform = 'tiktok'`;
       if (hasContent.length === 0) {
-        const hashtags = (item.hashtags || []).map(h => h.name || h.title || String(h));
+        const hashtags = (item.hashtags || []).map(h => typeof h === 'string' ? h : (h.name || h.title || '')).filter(Boolean);
         await sql`
           INSERT INTO content_items (fandom_id, platform, external_id, content_type, text, url, likes, comments, shares, views, published_at, hashtags)
           VALUES (${fandomId}, 'tiktok', ${extId}, 'video', ${item.text || null}, ${item.webVideoUrl || null}, ${item.diggCount || 0}, ${item.commentCount || 0}, ${item.shareCount || 0}, ${item.playCount || 0}, ${item.createTimeISO || null}, ${hashtags})

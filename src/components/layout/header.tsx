@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import { SidebarTrigger } from "@/components/ui/sidebar";
 import { Separator } from "@/components/ui/separator";
 import {
@@ -10,13 +11,13 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
+import { useSegment } from "@/lib/context/segment-context";
 
-interface HeaderProps {
-  segment: string;
-  onSegmentChange: (value: string) => void;
-}
+export function Header() {
+  const { segment, setSegment } = useSegment();
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
 
-export function Header({ segment, onSegmentChange }: HeaderProps) {
   return (
     <header className="flex h-14 shrink-0 items-center gap-2 border-b px-4">
       <SidebarTrigger className="-ml-1" />
@@ -32,32 +33,34 @@ export function Header({ segment, onSegmentChange }: HeaderProps) {
         <div className="flex items-center gap-3">
           <div className="flex items-center gap-2">
             <span className="text-xs text-muted-foreground">Segment:</span>
-            <Select value={segment} onValueChange={onSegmentChange}>
-              <SelectTrigger className="h-8 w-[160px]">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">
-                  <span className="flex items-center gap-2">All Segments</span>
-                </SelectItem>
-                <SelectItem value="postpaid">
-                  <span className="flex items-center gap-2">
-                    ABC Postpaid
-                    <Badge variant="secondary" className="text-[10px] px-1">
-                      Gen Y/Z
-                    </Badge>
-                  </span>
-                </SelectItem>
-                <SelectItem value="prepaid">
-                  <span className="flex items-center gap-2">
-                    CDE Prepaid
-                    <Badge variant="secondary" className="text-[10px] px-1">
-                      Gen Y/Z
-                    </Badge>
-                  </span>
-                </SelectItem>
-              </SelectContent>
-            </Select>
+            {mounted && (
+              <Select value={segment} onValueChange={setSegment}>
+                <SelectTrigger className="h-8 w-[160px]">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">
+                    <span className="flex items-center gap-2">All Segments</span>
+                  </SelectItem>
+                  <SelectItem value="postpaid">
+                    <span className="flex items-center gap-2">
+                      ABC Postpaid
+                      <Badge variant="secondary" className="text-[10px] px-1">
+                        Gen Y/Z
+                      </Badge>
+                    </span>
+                  </SelectItem>
+                  <SelectItem value="prepaid">
+                    <span className="flex items-center gap-2">
+                      CDE Prepaid
+                      <Badge variant="secondary" className="text-[10px] px-1">
+                        Gen Y/Z
+                      </Badge>
+                    </span>
+                  </SelectItem>
+                </SelectContent>
+              </Select>
+            )}
           </div>
         </div>
       </div>

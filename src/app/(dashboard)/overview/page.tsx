@@ -5,28 +5,22 @@ import { KpiCards } from "@/components/dashboard/kpi-cards";
 import { FandomTierSection } from "@/components/dashboard/fandom-tier-section";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
+import { useSegment } from "@/lib/context/segment-context";
 import type {
   FandomTier,
   FandomWithMetrics,
   DemographicTag,
-  MarketSegment,
 } from "@/types/fandom";
 
 const tiers: FandomTier[] = ["emerging", "trending", "existing"];
 
-const segmentFilters: {
-  value: MarketSegment;
-  label: string;
-  tags: DemographicTag[];
-}[] = [
-  { value: "all", label: "All Segments", tags: [] },
-  { value: "postpaid", label: "ABC Postpaid", tags: ["abc"] },
-  { value: "prepaid", label: "CDE Prepaid", tags: ["cde"] },
-];
+const segmentTagMap: Record<string, DemographicTag[]> = {
+  postpaid: ["abc"],
+  prepaid: ["cde"],
+};
 
 export default function OverviewPage() {
-  const [activeSegment, setActiveSegment] = useState<MarketSegment>("all");
+  const { segment } = useSegment();
   const [allFandoms, setAllFandoms] = useState<FandomWithMetrics[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -41,13 +35,13 @@ export default function OverviewPage() {
   }, []);
 
   const filteredFandoms = useMemo(() => {
-    if (activeSegment === "all") return allFandoms;
-    const filter = segmentFilters.find((s) => s.value === activeSegment);
-    if (!filter || filter.tags.length === 0) return allFandoms;
+    if (segment === "all") return allFandoms;
+    const tags = segmentTagMap[segment];
+    if (!tags) return allFandoms;
     return allFandoms.filter((f) =>
-      filter.tags.some((tag) => f.demographicTags.includes(tag))
+      tags.some((tag) => f.demographicTags.includes(tag))
     );
-  }, [allFandoms, activeSegment]);
+  }, [allFandoms, segment]);
 
   if (loading) {
     return (
@@ -76,28 +70,15 @@ export default function OverviewPage() {
             Track and analyze Philippine fandoms for PLDT Home campaigns
           </p>
         </div>
-        <div className="flex items-center gap-2">
-          {segmentFilters.map((seg) => (
-            <Button
-              key={seg.value}
-              variant={activeSegment === seg.value ? "default" : "outline"}
-              size="sm"
-              onClick={() => setActiveSegment(seg.value)}
-            >
-              {seg.label}
-            </Button>
-          ))}
-        </div>
       </div>
 
       <KpiCards fandoms={filteredFandoms} />
 
-      {activeSegment !== "all" && (
+      {segment !== "all" && (
         <div className="flex items-center gap-2">
           <span className="text-sm text-muted-foreground">Filtering by:</span>
           <Badge variant="secondary">
-            {activeSegment === "postpaid" ? "ABC Postpaid" : "CDE Prepaid"} -
-            Gen Y/Z
+            {segment === "postpaid" ? "ABC Postpaid" : "CDE Prepaid"} - Gen Y/Z
           </Badge>
         </div>
       )}

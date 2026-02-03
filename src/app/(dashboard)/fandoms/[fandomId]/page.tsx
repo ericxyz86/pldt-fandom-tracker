@@ -1,22 +1,16 @@
 "use client";
 
-import { useMemo } from "react";
+import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
+import { Skeleton } from "@/components/ui/skeleton";
 import { TierBadge } from "@/components/dashboard/tier-badge";
 import { PlatformIcons } from "@/components/dashboard/platform-icon";
 import { EngagementChart } from "@/components/dashboard/engagement-chart";
 import { GrowthChart } from "@/components/dashboard/growth-chart";
 import { PlatformBreakdown } from "@/components/dashboard/platform-breakdown";
-import {
-  getMockFandoms,
-  getMockMetricHistory,
-  getMockContent,
-  getMockInfluencers,
-  getMockTrends,
-} from "@/lib/data/mock";
 import { formatNumber, formatPercent } from "@/lib/utils/format";
 import {
   Table,
@@ -26,28 +20,70 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import type {
+  FandomTier,
+  Platform,
+  MetricSnapshot,
+  ContentItem,
+  Influencer,
+} from "@/types/fandom";
+
+interface FandomDetail {
+  id: string;
+  name: string;
+  slug: string;
+  tier: FandomTier;
+  description: string | null;
+  imageUrl: string | null;
+  fandomGroup: string | null;
+  demographicTags: string[];
+  platforms: { id: string; fandomId: string; platform: Platform; handle: string; followers: number; url: string | null }[];
+  totalFollowers: number;
+  avgEngagementRate: number;
+  weeklyGrowthRate: number;
+  latestMetrics: MetricSnapshot[];
+  content: ContentItem[];
+  influencers: Influencer[];
+}
 
 export default function FandomDetailPage() {
   const params = useParams();
   const slug = params.fandomId as string;
 
-  const allFandoms = useMemo(() => getMockFandoms(), []);
-  const fandom = allFandoms.find((f) => f.slug === slug);
+  const [fandom, setFandom] = useState<FandomDetail | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(false);
 
-  const metrics = useMemo(
-    () => (fandom ? getMockMetricHistory(fandom.id) : []),
-    [fandom]
-  );
-  const content = useMemo(
-    () => (fandom ? getMockContent(fandom.id) : []),
-    [fandom]
-  );
-  const influencers = useMemo(
-    () => (fandom ? getMockInfluencers(fandom.id) : []),
-    [fandom]
-  );
+  useEffect(() => {
+    fetch(`/api/fandoms/${slug}`)
+      .then((r) => {
+        if (!r.ok) throw new Error("Not found");
+        return r.json();
+      })
+      .then((data) => {
+        setFandom(data);
+        setLoading(false);
+      })
+      .catch(() => {
+        setError(true);
+        setLoading(false);
+      });
+  }, [slug]);
 
-  if (!fandom) {
+  if (loading) {
+    return (
+      <div className="space-y-6">
+        <Skeleton className="h-8 w-64" />
+        <Skeleton className="h-4 w-96" />
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          <Skeleton className="h-64" />
+          <Skeleton className="h-64" />
+        </div>
+      </div>
+    );
+  }
+
+  if (error || !fandom) {
     return (
       <div className="flex items-center justify-center h-64">
         <p className="text-muted-foreground">Fandom not found</p>
@@ -125,7 +161,7 @@ export default function FandomDetailPage() {
                 <CardTitle className="text-sm">Engagement Over Time</CardTitle>
               </CardHeader>
               <CardContent>
-                <EngagementChart metrics={metrics} />
+                <EngagementChart metrics={fandom.latestMetrics} />
               </CardContent>
             </Card>
             <Card>
@@ -133,7 +169,7 @@ export default function FandomDetailPage() {
                 <CardTitle className="text-sm">Growth Rate</CardTitle>
               </CardHeader>
               <CardContent>
-                <GrowthChart metrics={metrics} />
+                <GrowthChart metrics={fandom.latestMetrics} />
               </CardContent>
             </Card>
           </div>
@@ -153,101 +189,113 @@ export default function FandomDetailPage() {
               <CardTitle className="text-sm">Top Content</CardTitle>
             </CardHeader>
             <CardContent>
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Platform</TableHead>
-                    <TableHead>Type</TableHead>
-                    <TableHead className="text-right">Likes</TableHead>
-                    <TableHead className="text-right">Comments</TableHead>
-                    <TableHead className="text-right">Shares</TableHead>
-                    <TableHead className="text-right">Views</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {content
-                    .sort((a, b) => b.likes - a.likes)
-                    .slice(0, 10)
-                    .map((item) => (
-                      <TableRow key={item.id}>
-                        <TableCell className="capitalize">
-                          {item.platform}
-                        </TableCell>
-                        <TableCell>
-                          <Badge variant="outline" className="text-xs">
-                            {item.contentType}
-                          </Badge>
-                        </TableCell>
-                        <TableCell className="text-right">
-                          {formatNumber(item.likes)}
-                        </TableCell>
-                        <TableCell className="text-right">
-                          {formatNumber(item.comments)}
-                        </TableCell>
-                        <TableCell className="text-right">
-                          {formatNumber(item.shares)}
-                        </TableCell>
-                        <TableCell className="text-right">
-                          {formatNumber(item.views)}
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                </TableBody>
-              </Table>
+              {fandom.content.length === 0 ? (
+                <p className="text-sm text-muted-foreground">No content data available yet.</p>
+              ) : (
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Platform</TableHead>
+                      <TableHead>Type</TableHead>
+                      <TableHead className="text-right">Likes</TableHead>
+                      <TableHead className="text-right">Comments</TableHead>
+                      <TableHead className="text-right">Shares</TableHead>
+                      <TableHead className="text-right">Views</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {fandom.content
+                      .sort((a, b) => b.likes - a.likes)
+                      .slice(0, 10)
+                      .map((item) => (
+                        <TableRow key={item.id}>
+                          <TableCell className="capitalize">
+                            {item.platform}
+                          </TableCell>
+                          <TableCell>
+                            <Badge variant="outline" className="text-xs">
+                              {item.contentType}
+                            </Badge>
+                          </TableCell>
+                          <TableCell className="text-right">
+                            {formatNumber(item.likes)}
+                          </TableCell>
+                          <TableCell className="text-right">
+                            {formatNumber(item.comments)}
+                          </TableCell>
+                          <TableCell className="text-right">
+                            {formatNumber(item.shares)}
+                          </TableCell>
+                          <TableCell className="text-right">
+                            {formatNumber(item.views)}
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                  </TableBody>
+                </Table>
+              )}
             </CardContent>
           </Card>
         </TabsContent>
 
         <TabsContent value="influencers">
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {influencers
-              .sort((a, b) => b.relevanceScore - a.relevanceScore)
-              .map((inf) => (
-                <Card key={inf.id}>
-                  <CardContent className="pt-4">
-                    <div className="flex items-start gap-3">
-                      <div className="flex h-10 w-10 items-center justify-center rounded-full bg-muted text-sm font-semibold">
-                        {inf.username.charAt(0).toUpperCase()}
-                      </div>
-                      <div className="flex-1">
-                        <p className="font-semibold text-sm">
-                          @{inf.username}
-                        </p>
-                        <p className="text-xs text-muted-foreground capitalize">
-                          {inf.platform}
-                        </p>
-                        <div className="grid grid-cols-3 gap-2 mt-2">
-                          <div>
-                            <p className="text-xs text-muted-foreground">
-                              Followers
-                            </p>
-                            <p className="text-sm font-medium">
-                              {formatNumber(inf.followers)}
-                            </p>
-                          </div>
-                          <div>
-                            <p className="text-xs text-muted-foreground">
-                              Eng. Rate
-                            </p>
-                            <p className="text-sm font-medium">
-                              {inf.engagementRate}%
-                            </p>
-                          </div>
-                          <div>
-                            <p className="text-xs text-muted-foreground">
-                              Score
-                            </p>
-                            <p className="text-sm font-medium">
-                              {inf.relevanceScore}
-                            </p>
+          {fandom.influencers.length === 0 ? (
+            <Card>
+              <CardContent className="pt-6">
+                <p className="text-sm text-muted-foreground">No influencer data available yet.</p>
+              </CardContent>
+            </Card>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {fandom.influencers
+                .sort((a, b) => b.relevanceScore - a.relevanceScore)
+                .map((inf) => (
+                  <Card key={inf.id}>
+                    <CardContent className="pt-4">
+                      <div className="flex items-start gap-3">
+                        <div className="flex h-10 w-10 items-center justify-center rounded-full bg-muted text-sm font-semibold">
+                          {inf.username.charAt(0).toUpperCase()}
+                        </div>
+                        <div className="flex-1">
+                          <p className="font-semibold text-sm">
+                            @{inf.username}
+                          </p>
+                          <p className="text-xs text-muted-foreground capitalize">
+                            {inf.platform}
+                          </p>
+                          <div className="grid grid-cols-3 gap-2 mt-2">
+                            <div>
+                              <p className="text-xs text-muted-foreground">
+                                Followers
+                              </p>
+                              <p className="text-sm font-medium">
+                                {formatNumber(inf.followers)}
+                              </p>
+                            </div>
+                            <div>
+                              <p className="text-xs text-muted-foreground">
+                                Eng. Rate
+                              </p>
+                              <p className="text-sm font-medium">
+                                {inf.engagementRate}%
+                              </p>
+                            </div>
+                            <div>
+                              <p className="text-xs text-muted-foreground">
+                                Score
+                              </p>
+                              <p className="text-sm font-medium">
+                                {inf.relevanceScore}
+                              </p>
+                            </div>
                           </div>
                         </div>
                       </div>
-                    </div>
-                  </CardContent>
-                </Card>
-              ))}
-          </div>
+                    </CardContent>
+                  </Card>
+                ))}
+            </div>
+          )}
         </TabsContent>
       </Tabs>
     </div>

@@ -1,16 +1,40 @@
 "use client";
 
-import { useMemo } from "react";
+import { useEffect, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { getMockRecommendations } from "@/lib/data/mock";
+import { Skeleton } from "@/components/ui/skeleton";
 import { formatNumber } from "@/lib/utils/format";
 import { PlatformIcon } from "@/components/dashboard/platform-icon";
 import { TierBadge } from "@/components/dashboard/tier-badge";
-import type { Platform } from "@/types/fandom";
+import type { Platform, Recommendation } from "@/types/fandom";
 
 export default function RecommendationsPage() {
-  const recommendations = useMemo(() => getMockRecommendations(), []);
+  const [recommendations, setRecommendations] = useState<Recommendation[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    fetch("/api/recommendations")
+      .then((r) => r.json())
+      .then((data) => {
+        if (Array.isArray(data)) setRecommendations(data);
+        setLoading(false);
+      })
+      .catch(() => setLoading(false));
+  }, []);
+
+  if (loading) {
+    return (
+      <div className="space-y-6">
+        <Skeleton className="h-8 w-64" />
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          {Array.from({ length: 4 }).map((_, i) => (
+            <Skeleton key={i} className="h-64" />
+          ))}
+        </div>
+      </div>
+    );
+  }
 
   const sorted = [...recommendations].sort((a, b) => b.score - a.score);
 
@@ -19,8 +43,8 @@ export default function RecommendationsPage() {
       <div>
         <h1 className="text-2xl font-bold">Campaign Recommendations</h1>
         <p className="text-sm text-muted-foreground mt-1">
-          AI-generated campaign suggestions based on fandom momentum, engagement
-          quality, and demographic fit
+          Campaign suggestions based on fandom momentum, engagement quality, and
+          demographic fit
         </p>
       </div>
 

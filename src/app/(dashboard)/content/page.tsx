@@ -1,8 +1,9 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   Select,
   SelectContent,
@@ -18,20 +19,28 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { getMockFandoms, getMockContent } from "@/lib/data/mock";
 import { formatNumber } from "@/lib/utils/format";
 import { PlatformIcon } from "@/components/dashboard/platform-icon";
-import type { Platform } from "@/types/fandom";
+import type { Platform, ContentItem } from "@/types/fandom";
+
+interface ContentWithFandom extends ContentItem {
+  fandomName: string;
+}
 
 export default function ContentPage() {
   const [platformFilter, setPlatformFilter] = useState<string>("all");
-  const fandoms = useMemo(() => getMockFandoms(), []);
+  const [allContent, setAllContent] = useState<ContentWithFandom[]>([]);
+  const [loading, setLoading] = useState(true);
 
-  const allContent = useMemo(() => {
-    return fandoms.flatMap((f) =>
-      getMockContent(f.id).map((c) => ({ ...c, fandomName: f.name }))
-    );
-  }, [fandoms]);
+  useEffect(() => {
+    fetch("/api/content")
+      .then((r) => r.json())
+      .then((data) => {
+        setAllContent(data);
+        setLoading(false);
+      })
+      .catch(() => setLoading(false));
+  }, []);
 
   const filtered = useMemo(() => {
     let result = allContent;
@@ -52,6 +61,18 @@ export default function ContentPage() {
       .sort((a, b) => b[1] - a[1])
       .slice(0, 20);
   }, [allContent]);
+
+  if (loading) {
+    return (
+      <div className="space-y-6">
+        <Skeleton className="h-8 w-64" />
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+          <Skeleton className="h-96 lg:col-span-2" />
+          <Skeleton className="h-96" />
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">

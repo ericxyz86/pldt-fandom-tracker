@@ -99,6 +99,18 @@ export interface FandomWithMetrics extends Fandom {
   latestMetrics: MetricSnapshot[];
 }
 
+export interface FandomDiscovery {
+  name: string;
+  source: "hashtag" | "mention" | "keyword";
+  platform: Platform;
+  occurrences: number;
+  sampleContent: string[];
+  estimatedReach: number;
+  suggestedTier: FandomTier;
+  suggestedGroup: string;
+  confidence: number; // 0-100
+}
+
 export interface Recommendation {
   id: string;
   fandomId: string;
