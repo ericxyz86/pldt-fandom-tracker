@@ -74,12 +74,12 @@ export const metricSnapshots = pgTable("metric_snapshots", {
   postsCount: integer("posts_count").default(0).notNull(),
   engagementTotal: integer("engagement_total").default(0).notNull(),
   engagementRate: decimal("engagement_rate", {
-    precision: 7,
+    precision: 12,
     scale: 4,
   })
     .default("0")
     .notNull(),
-  growthRate: decimal("growth_rate", { precision: 7, scale: 4 })
+  growthRate: decimal("growth_rate", { precision: 12, scale: 4 })
     .default("0")
     .notNull(),
   avgLikes: integer("avg_likes").default(0).notNull(),
@@ -116,7 +116,7 @@ export const influencers = pgTable("influencers", {
   displayName: text("display_name"),
   followers: integer("followers").default(0).notNull(),
   engagementRate: decimal("engagement_rate", {
-    precision: 7,
+    precision: 12,
     scale: 4,
   })
     .default("0")

@@ -1,16 +1,25 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { KpiCards } from "@/components/dashboard/kpi-cards";
 import { FandomTierSection } from "@/components/dashboard/fandom-tier-section";
-import { getMockFandoms } from "@/lib/data/mock";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import type { FandomTier, DemographicTag, MarketSegment } from "@/types/fandom";
+import type {
+  FandomTier,
+  FandomWithMetrics,
+  DemographicTag,
+  MarketSegment,
+} from "@/types/fandom";
 
 const tiers: FandomTier[] = ["emerging", "trending", "existing"];
 
-const segmentFilters: { value: MarketSegment; label: string; tags: DemographicTag[] }[] = [
+const segmentFilters: {
+  value: MarketSegment;
+  label: string;
+  tags: DemographicTag[];
+}[] = [
   { value: "all", label: "All Segments", tags: [] },
   { value: "postpaid", label: "ABC Postpaid", tags: ["abc"] },
   { value: "prepaid", label: "CDE Prepaid", tags: ["cde"] },
@@ -18,7 +27,18 @@ const segmentFilters: { value: MarketSegment; label: string; tags: DemographicTa
 
 export default function OverviewPage() {
   const [activeSegment, setActiveSegment] = useState<MarketSegment>("all");
-  const allFandoms = useMemo(() => getMockFandoms(), []);
+  const [allFandoms, setAllFandoms] = useState<FandomWithMetrics[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    fetch("/api/fandoms")
+      .then((r) => r.json())
+      .then((data) => {
+        setAllFandoms(data);
+        setLoading(false);
+      })
+      .catch(() => setLoading(false));
+  }, []);
 
   const filteredFandoms = useMemo(() => {
     if (activeSegment === "all") return allFandoms;
@@ -28,6 +48,24 @@ export default function OverviewPage() {
       filter.tags.some((tag) => f.demographicTags.includes(tag))
     );
   }, [allFandoms, activeSegment]);
+
+  if (loading) {
+    return (
+      <div className="space-y-8">
+        <Skeleton className="h-8 w-64" />
+        <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
+          {Array.from({ length: 5 }).map((_, i) => (
+            <Skeleton key={i} className="h-24" />
+          ))}
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          {Array.from({ length: 6 }).map((_, i) => (
+            <Skeleton key={i} className="h-40" />
+          ))}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-8">
@@ -58,7 +96,8 @@ export default function OverviewPage() {
         <div className="flex items-center gap-2">
           <span className="text-sm text-muted-foreground">Filtering by:</span>
           <Badge variant="secondary">
-            {activeSegment === "postpaid" ? "ABC Postpaid" : "CDE Prepaid"} - Gen Y/Z
+            {activeSegment === "postpaid" ? "ABC Postpaid" : "CDE Prepaid"} -
+            Gen Y/Z
           </Badge>
         </div>
       )}

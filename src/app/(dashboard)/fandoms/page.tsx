@@ -1,8 +1,8 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { FandomCard } from "@/components/dashboard/fandom-card";
-import { getMockFandoms } from "@/lib/data/mock";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Input } from "@/components/ui/input";
 import {
   Select,
@@ -11,11 +11,23 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import type { FandomWithMetrics } from "@/types/fandom";
 
 export default function FandomsPage() {
   const [search, setSearch] = useState("");
   const [tierFilter, setTierFilter] = useState<string>("all");
-  const allFandoms = useMemo(() => getMockFandoms(), []);
+  const [allFandoms, setAllFandoms] = useState<FandomWithMetrics[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    fetch("/api/fandoms")
+      .then((r) => r.json())
+      .then((data) => {
+        setAllFandoms(data);
+        setLoading(false);
+      })
+      .catch(() => setLoading(false));
+  }, []);
 
   const filtered = useMemo(() => {
     let result = allFandoms;
@@ -32,6 +44,19 @@ export default function FandomsPage() {
     }
     return result;
   }, [allFandoms, search, tierFilter]);
+
+  if (loading) {
+    return (
+      <div className="space-y-6">
+        <Skeleton className="h-8 w-48" />
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          {Array.from({ length: 6 }).map((_, i) => (
+            <Skeleton key={i} className="h-40" />
+          ))}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">

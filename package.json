@@ -9,7 +9,6 @@
     "lint": "eslint"
   },
   "dependencies": {
-    "@neondatabase/serverless": "^1.0.2",
     "@tanstack/react-query": "^5.90.20",
     "apify-client": "^2.22.0",
     "class-variance-authority": "^0.7.1",
@@ -17,6 +16,7 @@
     "drizzle-orm": "^0.45.1",
     "lucide-react": "^0.563.0",
     "next": "16.1.6",
+    "postgres": "^3.4.8",
     "radix-ui": "^1.4.3",
     "react": "19.2.3",
     "react-dom": "19.2.3",
@@ -28,6 +28,7 @@
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "dotenv": "^17.2.3",
     "drizzle-kit": "^0.31.8",
     "eslint": "^9",
     "eslint-config-next": "16.1.6",
