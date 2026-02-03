@@ -1,0 +1,317 @@
+import type { Platform, ContentType } from "@/types/fandom";
+
+interface NormalizedMetric {
+  followers: number;
+  postsCount: number;
+  engagementTotal: number;
+  avgLikes: number;
+  avgComments: number;
+  avgShares: number;
+}
+
+interface NormalizedContent {
+  externalId: string;
+  contentType: ContentType;
+  text: string | null;
+  url: string | null;
+  likes: number;
+  comments: number;
+  shares: number;
+  views: number;
+  publishedAt: string | null;
+  hashtags: string[];
+}
+
+interface NormalizedInfluencer {
+  username: string;
+  displayName: string | null;
+  followers: number;
+  engagementRate: number;
+  profileUrl: string | null;
+  avatarUrl: string | null;
+  bio: string | null;
+}
+
+/* eslint-disable @typescript-eslint/no-explicit-any */
+
+export function normalizeMetrics(
+  platform: Platform,
+  rawData: any[]
+): NormalizedMetric {
+  switch (platform) {
+    case "instagram":
+      return normalizeInstagramMetrics(rawData);
+    case "tiktok":
+      return normalizeTikTokMetrics(rawData);
+    case "facebook":
+      return normalizeFacebookMetrics(rawData);
+    case "youtube":
+      return normalizeYouTubeMetrics(rawData);
+    case "twitter":
+      return normalizeTwitterMetrics(rawData);
+    case "reddit":
+      return normalizeRedditMetrics(rawData);
+    default:
+      return {
+        followers: 0,
+        postsCount: 0,
+        engagementTotal: 0,
+        avgLikes: 0,
+        avgComments: 0,
+        avgShares: 0,
+      };
+  }
+}
+
+export function normalizeContent(
+  platform: Platform,
+  rawData: any[]
+): NormalizedContent[] {
+  switch (platform) {
+    case "instagram":
+      return rawData.map((item) => ({
+        externalId: item.id || item.shortCode || "",
+        contentType: item.type === "Video" ? "reel" : "post",
+        text: item.caption || null,
+        url: item.url || null,
+        likes: item.likesCount || 0,
+        comments: item.commentsCount || 0,
+        shares: 0,
+        views: item.videoViewCount || 0,
+        publishedAt: item.timestamp || null,
+        hashtags: extractHashtags(item.caption || ""),
+      }));
+    case "tiktok":
+      return rawData.map((item) => ({
+        externalId: item.id || "",
+        contentType: "video",
+        text: item.text || item.desc || null,
+        url: item.webVideoUrl || null,
+        likes: item.diggCount || item.likes || 0,
+        comments: item.commentCount || item.comments || 0,
+        shares: item.shareCount || item.shares || 0,
+        views: item.playCount || item.views || 0,
+        publishedAt: item.createTime
+          ? new Date(item.createTime * 1000).toISOString()
+          : null,
+        hashtags: (item.hashtags || []).map(
+          (h: any) => h.name || h.title || h
+        ),
+      }));
+    case "twitter":
+      return rawData.map((item) => ({
+        externalId: item.id || "",
+        contentType: "tweet",
+        text: item.full_text || item.text || null,
+        url: item.url || null,
+        likes: item.favorite_count || item.likeCount || 0,
+        comments: item.reply_count || item.replyCount || 0,
+        shares: item.retweet_count || item.retweetCount || 0,
+        views: item.views_count || 0,
+        publishedAt: item.created_at || null,
+        hashtags: (item.entities?.hashtags || []).map(
+          (h: any) => h.text || h
+        ),
+      }));
+    case "youtube":
+      return rawData.map((item) => ({
+        externalId: item.id || "",
+        contentType: "video",
+        text: item.title || null,
+        url: item.url || null,
+        likes: item.likes || 0,
+        comments: item.commentsCount || 0,
+        shares: 0,
+        views: item.viewCount || item.views || 0,
+        publishedAt: item.date || item.uploadDate || null,
+        hashtags: extractHashtags(item.title || ""),
+      }));
+    case "facebook":
+      return rawData.map((item) => ({
+        externalId: item.postId || item.id || "",
+        contentType: "post",
+        text: item.text || item.message || null,
+        url: item.url || null,
+        likes: item.likes || item.reactionsCount || 0,
+        comments: item.comments || item.commentsCount || 0,
+        shares: item.shares || item.sharesCount || 0,
+        views: 0,
+        publishedAt: item.time || item.timestamp || null,
+        hashtags: extractHashtags(item.text || item.message || ""),
+      }));
+    case "reddit":
+      return rawData.map((item) => ({
+        externalId: item.id || "",
+        contentType: "thread",
+        text: item.title || null,
+        url: item.url || null,
+        likes: item.upVotes || item.score || 0,
+        comments: item.numberOfComments || item.numComments || 0,
+        shares: 0,
+        views: 0,
+        publishedAt: item.createdAt || null,
+        hashtags: [],
+      }));
+    default:
+      return [];
+  }
+}
+
+export function normalizeInfluencers(
+  platform: Platform,
+  rawData: any[]
+): NormalizedInfluencer[] {
+  return rawData.map((item) => ({
+    username: item.username || item.handle || "",
+    displayName: item.fullName || item.displayName || item.name || null,
+    followers: item.followersCount || item.followers || 0,
+    engagementRate: item.engagementRate || 0,
+    profileUrl: item.profileUrl || item.url || null,
+    avatarUrl:
+      item.profilePicUrl || item.avatar || item.profileImageUrl || null,
+    bio: item.biography || item.bio || item.description || null,
+  }));
+}
+
+function normalizeInstagramMetrics(rawData: any[]): NormalizedMetric {
+  const totalLikes = rawData.reduce(
+    (sum, item) => sum + (item.likesCount || 0),
+    0
+  );
+  const totalComments = rawData.reduce(
+    (sum, item) => sum + (item.commentsCount || 0),
+    0
+  );
+  return {
+    followers: rawData[0]?.ownerFollowerCount || 0,
+    postsCount: rawData.length,
+    engagementTotal: totalLikes + totalComments,
+    avgLikes: rawData.length ? Math.round(totalLikes / rawData.length) : 0,
+    avgComments: rawData.length
+      ? Math.round(totalComments / rawData.length)
+      : 0,
+    avgShares: 0,
+  };
+}
+
+function normalizeTikTokMetrics(rawData: any[]): NormalizedMetric {
+  const totalLikes = rawData.reduce(
+    (sum, item) => sum + (item.diggCount || item.likes || 0),
+    0
+  );
+  const totalComments = rawData.reduce(
+    (sum, item) => sum + (item.commentCount || item.comments || 0),
+    0
+  );
+  const totalShares = rawData.reduce(
+    (sum, item) => sum + (item.shareCount || item.shares || 0),
+    0
+  );
+  return {
+    followers: rawData[0]?.authorMeta?.fans || 0,
+    postsCount: rawData.length,
+    engagementTotal: totalLikes + totalComments + totalShares,
+    avgLikes: rawData.length ? Math.round(totalLikes / rawData.length) : 0,
+    avgComments: rawData.length
+      ? Math.round(totalComments / rawData.length)
+      : 0,
+    avgShares: rawData.length ? Math.round(totalShares / rawData.length) : 0,
+  };
+}
+
+function normalizeFacebookMetrics(rawData: any[]): NormalizedMetric {
+  const totalLikes = rawData.reduce(
+    (sum, item) => sum + (item.likes || item.reactionsCount || 0),
+    0
+  );
+  const totalComments = rawData.reduce(
+    (sum, item) => sum + (item.comments || item.commentsCount || 0),
+    0
+  );
+  const totalShares = rawData.reduce(
+    (sum, item) => sum + (item.shares || item.sharesCount || 0),
+    0
+  );
+  return {
+    followers: 0,
+    postsCount: rawData.length,
+    engagementTotal: totalLikes + totalComments + totalShares,
+    avgLikes: rawData.length ? Math.round(totalLikes / rawData.length) : 0,
+    avgComments: rawData.length
+      ? Math.round(totalComments / rawData.length)
+      : 0,
+    avgShares: rawData.length ? Math.round(totalShares / rawData.length) : 0,
+  };
+}
+
+function normalizeYouTubeMetrics(rawData: any[]): NormalizedMetric {
+  const totalLikes = rawData.reduce(
+    (sum, item) => sum + (item.likes || 0),
+    0
+  );
+  const totalComments = rawData.reduce(
+    (sum, item) => sum + (item.commentsCount || 0),
+    0
+  );
+  return {
+    followers: rawData[0]?.channelSubscribers || 0,
+    postsCount: rawData.length,
+    engagementTotal: totalLikes + totalComments,
+    avgLikes: rawData.length ? Math.round(totalLikes / rawData.length) : 0,
+    avgComments: rawData.length
+      ? Math.round(totalComments / rawData.length)
+      : 0,
+    avgShares: 0,
+  };
+}
+
+function normalizeTwitterMetrics(rawData: any[]): NormalizedMetric {
+  const totalLikes = rawData.reduce(
+    (sum, item) => sum + (item.favorite_count || item.likeCount || 0),
+    0
+  );
+  const totalComments = rawData.reduce(
+    (sum, item) => sum + (item.reply_count || item.replyCount || 0),
+    0
+  );
+  const totalShares = rawData.reduce(
+    (sum, item) => sum + (item.retweet_count || item.retweetCount || 0),
+    0
+  );
+  return {
+    followers: 0,
+    postsCount: rawData.length,
+    engagementTotal: totalLikes + totalComments + totalShares,
+    avgLikes: rawData.length ? Math.round(totalLikes / rawData.length) : 0,
+    avgComments: rawData.length
+      ? Math.round(totalComments / rawData.length)
+      : 0,
+    avgShares: rawData.length ? Math.round(totalShares / rawData.length) : 0,
+  };
+}
+
+function normalizeRedditMetrics(rawData: any[]): NormalizedMetric {
+  const totalLikes = rawData.reduce(
+    (sum, item) => sum + (item.upVotes || item.score || 0),
+    0
+  );
+  const totalComments = rawData.reduce(
+    (sum, item) => sum + (item.numberOfComments || item.numComments || 0),
+    0
+  );
+  return {
+    followers: 0,
+    postsCount: rawData.length,
+    engagementTotal: totalLikes + totalComments,
+    avgLikes: rawData.length ? Math.round(totalLikes / rawData.length) : 0,
+    avgComments: rawData.length
+      ? Math.round(totalComments / rawData.length)
+      : 0,
+    avgShares: 0,
+  };
+}
+
+function extractHashtags(text: string): string[] {
+  const matches = text.match(/#[\w\u0080-\uFFFF]+/g);
+  return matches ? matches.map((h) => h.replace("#", "")) : [];
+}
