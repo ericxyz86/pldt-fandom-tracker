@@ -6,12 +6,14 @@ import {
   contentItems,
   influencers,
   googleTrends,
+  scrapeRuns,
 } from "@/lib/db/schema";
-import { eq, desc, sql } from "drizzle-orm";
+import { eq, desc, sql, gte, lte, and } from "drizzle-orm";
 import type {
   FandomWithMetrics,
   MetricSnapshot,
   ContentItem,
+  ContentInsight,
   Influencer,
   Recommendation,
   DemographicTag,
@@ -19,15 +21,20 @@ import type {
   Platform,
 } from "@/types/fandom";
 
-export async function getAllFandoms(): Promise<FandomWithMetrics[]> {
+export async function getAllFandoms(dateFrom?: string, dateTo?: string): Promise<FandomWithMetrics[]> {
+  // Build date filter conditions for metrics
+  const metricsConditions = [];
+  if (dateFrom) metricsConditions.push(gte(metricSnapshots.date, dateFrom));
+  if (dateTo) metricsConditions.push(lte(metricSnapshots.date, dateTo));
+  const metricsWhere = metricsConditions.length > 0 ? and(...metricsConditions) : undefined;
+
   // Batch all queries in parallel instead of N+1
-  const [rows, allPlatforms, allMetrics, engagementStats] = await Promise.all([
+  const [rows, allPlatforms, allMetrics, engagementStats, scrapeCounts] = await Promise.all([
     db.select().from(fandoms).orderBy(fandoms.name),
     db.select().from(fandomPlatforms),
-    db
-      .select()
-      .from(metricSnapshots)
-      .orderBy(desc(metricSnapshots.date)),
+    metricsWhere
+      ? db.select().from(metricSnapshots).where(metricsWhere).orderBy(desc(metricSnapshots.date))
+      : db.select().from(metricSnapshots).orderBy(desc(metricSnapshots.date)),
     db
       .select({
         fandomId: contentItems.fandomId,
@@ -36,6 +43,14 @@ export async function getAllFandoms(): Promise<FandomWithMetrics[]> {
       })
       .from(contentItems)
       .groupBy(contentItems.fandomId),
+    db
+      .select({
+        fandomId: scrapeRuns.fandomId,
+        count: sql<number>`count(*)`,
+      })
+      .from(scrapeRuns)
+      .where(eq(scrapeRuns.status, "succeeded"))
+      .groupBy(scrapeRuns.fandomId),
   ]);
 
   // Index by fandomId for O(1) lookups
@@ -49,7 +64,7 @@ export async function getAllFandoms(): Promise<FandomWithMetrics[]> {
   const metricsByFandom = new Map<string, typeof allMetrics>();
   for (const m of allMetrics) {
     const list = metricsByFandom.get(m.fandomId) || [];
-    if (list.length < 10) list.push(m);
+    list.push(m);
     metricsByFandom.set(m.fandomId, list);
   }
 
@@ -61,6 +76,13 @@ export async function getAllFandoms(): Promise<FandomWithMetrics[]> {
     });
   }
 
+  const scrapeByFandom = new Set<string>();
+  for (const s of scrapeCounts) {
+    if (s.fandomId && Number(s.count) > 0) {
+      scrapeByFandom.add(s.fandomId);
+    }
+  }
+
   return rows.map((row) => {
     const platforms = platformsByFandom.get(row.id) || [];
     const latestMetrics = metricsByFandom.get(row.id) || [];
@@ -68,6 +90,12 @@ export async function getAllFandoms(): Promise<FandomWithMetrics[]> {
     const totalFollowers = platforms.reduce((s, p) => s + p.followers, 0);
     const engRate =
       eng.totalViews > 0 ? (eng.totalEngagement / eng.totalViews) * 100 : 0;
+
+    // Consider scraped if we have scrape runs, content items, or metric snapshots
+    const hasBeenScraped =
+      scrapeByFandom.has(row.id) ||
+      engByFandom.has(row.id) ||
+      latestMetrics.length > 0;
 
     return {
       id: row.id,
@@ -80,6 +108,11 @@ export async function getAllFandoms(): Promise<FandomWithMetrics[]> {
       demographicTags: (row.demographicTags || []) as DemographicTag[],
       createdAt: row.createdAt,
       updatedAt: row.updatedAt,
+      aiKeyBehavior: row.aiKeyBehavior,
+      aiEngagementPotential: row.aiEngagementPotential,
+      aiCommunityTone: row.aiCommunityTone,
+      aiRationale: row.aiRationale,
+      aiSuggestedAction: row.aiSuggestedAction,
       platforms: platforms.map((p) => ({
         id: p.id,
         fandomId: p.fandomId,
@@ -95,11 +128,12 @@ export async function getAllFandoms(): Promise<FandomWithMetrics[]> {
           ? parseFloat(latestMetrics[0].growthRate)
           : 0,
       latestMetrics: latestMetrics.map(mapMetric),
+      hasBeenScraped,
     };
   });
 }
 
-export async function getFandomBySlug(slug: string) {
+export async function getFandomBySlug(slug: string, dateFrom?: string, dateTo?: string) {
   const rows = await db
     .select()
     .from(fandoms)
@@ -114,10 +148,14 @@ export async function getFandomBySlug(slug: string) {
     .from(fandomPlatforms)
     .where(eq(fandomPlatforms.fandomId, row.id));
 
+  const metricsConditions = [eq(metricSnapshots.fandomId, row.id)];
+  if (dateFrom) metricsConditions.push(gte(metricSnapshots.date, dateFrom));
+  if (dateTo) metricsConditions.push(lte(metricSnapshots.date, dateTo));
+
   const metrics = await db
     .select()
     .from(metricSnapshots)
-    .where(eq(metricSnapshots.fandomId, row.id))
+    .where(and(...metricsConditions))
     .orderBy(desc(metricSnapshots.date));
 
   const content = await db
@@ -127,11 +165,19 @@ export async function getFandomBySlug(slug: string) {
     .orderBy(desc(contentItems.likes))
     .limit(20);
 
-  const infs = await db
+  const infsByEngagement = await db
     .select()
     .from(influencers)
     .where(eq(influencers.fandomId, row.id))
-    .orderBy(desc(influencers.relevanceScore));
+    .orderBy(desc(influencers.engagementRate))
+    .limit(12);
+
+  const infsByFollowers = await db
+    .select()
+    .from(influencers)
+    .where(eq(influencers.fandomId, row.id))
+    .orderBy(desc(influencers.followers))
+    .limit(12);
 
   const totalFollowers = platforms.reduce((s, p) => s + p.followers, 0);
 
@@ -154,6 +200,11 @@ export async function getFandomBySlug(slug: string) {
     demographicTags: (row.demographicTags || []) as DemographicTag[],
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
+    aiKeyBehavior: row.aiKeyBehavior,
+    aiEngagementPotential: row.aiEngagementPotential,
+    aiCommunityTone: row.aiCommunityTone,
+    aiRationale: row.aiRationale,
+    aiSuggestedAction: row.aiSuggestedAction,
     platforms: platforms.map((p) => ({
       id: p.id,
       fandomId: p.fandomId,
@@ -166,8 +217,10 @@ export async function getFandomBySlug(slug: string) {
     avgEngagementRate: parseFloat(engRate.toFixed(2)),
     weeklyGrowthRate: metrics.length > 0 ? parseFloat(metrics[0].growthRate) : 0,
     latestMetrics: metrics.map(mapMetric),
+    hasBeenScraped: content.length > 0 || metrics.length > 0,
     content: content.map(mapContent),
-    influencers: infs.map(mapInfluencer),
+    influencersByEngagement: infsByEngagement.map(mapInfluencer),
+    influencersByFollowers: infsByFollowers.map(mapInfluencer),
   };
 }
 
@@ -283,8 +336,8 @@ export async function getAllTrends() {
 }
 
 export async function getRecommendations(): Promise<Recommendation[]> {
-  // Fetch fandoms and content counts in parallel (single batch)
-  const [allFandoms, contentCounts] = await Promise.all([
+  // Fetch fandoms, content counts, and all content for insight analysis
+  const [allFandoms, contentCounts, allContentRows] = await Promise.all([
     getAllFandoms(),
     db
       .select({
@@ -293,11 +346,31 @@ export async function getRecommendations(): Promise<Recommendation[]> {
       })
       .from(contentItems)
       .groupBy(contentItems.fandomId),
+    db
+      .select({
+        fandomId: contentItems.fandomId,
+        contentType: contentItems.contentType,
+        text: contentItems.text,
+        likes: contentItems.likes,
+        comments: contentItems.comments,
+        shares: contentItems.shares,
+        views: contentItems.views,
+        hashtags: contentItems.hashtags,
+      })
+      .from(contentItems),
   ]);
 
   const countMap = new Map(
     contentCounts.map((c) => [c.fandomId, Number(c.count)])
   );
+
+  // Group content by fandom for insight generation
+  const contentByFandom = new Map<string, typeof allContentRows>();
+  for (const row of allContentRows) {
+    const list = contentByFandom.get(row.fandomId) || [];
+    list.push(row);
+    contentByFandom.set(row.fandomId, list);
+  }
 
   const recommendations: Recommendation[] = allFandoms.map((f) => {
     const segment: "postpaid" | "prepaid" =
@@ -333,6 +406,16 @@ export async function getRecommendations(): Promise<Recommendation[]> {
       action = `Maintain brand presence through periodic sponsored posts. Monitor for trending moments to amplify.`;
     }
 
+    const fandomContent = contentByFandom.get(f.id) || [];
+    const contentInsight = analyzeContentInsight(fandomContent, f.avgEngagementRate);
+
+    // Use AI-generated fields when available, fall back to rule-based
+    const finalRationale = f.aiRationale || rationale;
+    const finalAction = f.aiSuggestedAction || action;
+    if (f.aiCommunityTone) {
+      contentInsight.tone = f.aiCommunityTone;
+    }
+
     return {
       id: f.id,
       fandomId: f.id,
@@ -340,13 +423,122 @@ export async function getRecommendations(): Promise<Recommendation[]> {
       tier: f.tier,
       segment,
       score,
-      rationale,
+      rationale: finalRationale,
       suggestedPlatform: (bestPlatform?.platform || "tiktok") as Platform,
-      suggestedAction: action,
+      suggestedAction: finalAction,
       estimatedReach: f.totalFollowers,
       demographicTags: f.demographicTags,
+      contentInsight,
+      hasBeenScraped: f.hasBeenScraped,
     };
   });
 
   return recommendations.sort((a, b) => b.score - a.score);
+}
+
+function analyzeContentInsight(
+  content: { contentType: string; text: string | null; likes: number; comments: number; shares: number; views: number; hashtags: string[] | null }[],
+  engagementRate: number,
+): ContentInsight {
+  if (content.length === 0) {
+    return {
+      topContentType: "unknown",
+      contentBreakdown: [],
+      tone: "Insufficient data to determine tone.",
+      fanBehavior: "No content data available yet.",
+      topHashtags: [],
+    };
+  }
+
+  // Content type breakdown
+  const typeCounts: Record<string, number> = {};
+  for (const c of content) {
+    typeCounts[c.contentType] = (typeCounts[c.contentType] || 0) + 1;
+  }
+  const contentBreakdown = Object.entries(typeCounts)
+    .map(([type, count]) => ({
+      type,
+      count,
+      percentage: Math.round((count / content.length) * 100),
+    }))
+    .sort((a, b) => b.count - a.count);
+  const topContentType = contentBreakdown[0]?.type || "unknown";
+
+  // Top hashtags
+  const hashtagCounts: Record<string, number> = {};
+  for (const c of content) {
+    for (const h of c.hashtags || []) {
+      hashtagCounts[h] = (hashtagCounts[h] || 0) + 1;
+    }
+  }
+  const topHashtags = Object.entries(hashtagCounts)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 5)
+    .map(([tag]) => tag);
+
+  // Tone analysis based on content signals
+  const totalLikes = content.reduce((s, c) => s + c.likes, 0);
+  const totalComments = content.reduce((s, c) => s + c.comments, 0);
+  const totalShares = content.reduce((s, c) => s + c.shares, 0);
+  const totalViews = content.reduce((s, c) => s + c.views, 0);
+  const commentRatio = totalViews > 0 ? totalComments / totalViews : 0;
+  const shareRatio = totalViews > 0 ? totalShares / totalViews : 0;
+  const likeRatio = totalViews > 0 ? totalLikes / totalViews : 0;
+
+  // Analyze text for tone signals
+  const allText = content
+    .map((c) => c.text || "")
+    .join(" ")
+    .toLowerCase();
+
+  const hasFanLove = /love|proud|stan|slay|queen|king|idol|bias|ult|fave|bestie/i.test(allText);
+  const hasHype = /omg|grabe|laban|trending|viral|lit|fire|iconic|era/i.test(allText);
+  const hasAdvocacy = /support|vote|stream|milestone|record|chart|project|fund/i.test(allText);
+  const hasHumor = /lol|haha|charot|joke|funny|meme|kaloka|naur/i.test(allText);
+  const hasFilipino = /grabe|sana all|ang ganda|galing|proud pinoy|pinoy pride|laban|galing/i.test(allText);
+
+  const toneTraits: string[] = [];
+  if (hasFanLove) toneTraits.push("passionate and affectionate");
+  if (hasHype) toneTraits.push("hype-driven and energetic");
+  if (hasAdvocacy) toneTraits.push("goal-oriented and organized");
+  if (hasHumor) toneTraits.push("humorous and casual");
+  if (hasFilipino) toneTraits.push("proudly Filipino");
+
+  let tone: string;
+  if (toneTraits.length > 0) {
+    tone = `Community tone is ${toneTraits.join(", ")}. Best approached with content that matches this energy.`;
+  } else if (engagementRate > 10) {
+    tone = "Highly reactive community that engages deeply with content. Authentic, relatable messaging works best.";
+  } else {
+    tone = "Community engages at a moderate level. Clear, direct messaging with strong visuals recommended.";
+  }
+
+  // Fan behavior analysis
+  const isVideoHeavy = (typeCounts["video"] || 0) + (typeCounts["reel"] || 0) > content.length * 0.6;
+  const isHighComment = commentRatio > 0.02;
+  const isHighShare = shareRatio > 0.01;
+  const isHighLike = likeRatio > 0.05;
+
+  const behaviors: string[] = [];
+  if (isVideoHeavy) behaviors.push("Fans prefer short-form video content (reels/TikToks)");
+  else if ((typeCounts["post"] || 0) > content.length * 0.5) behaviors.push("Fans engage primarily with image posts and carousels");
+  else if ((typeCounts["tweet"] || 0) > content.length * 0.5) behaviors.push("Fans are highly active in text-based discussions and threads");
+
+  if (isHighComment) behaviors.push("strong commenter culture — fans actively discuss and reply");
+  if (isHighShare) behaviors.push("high sharing tendency — fans amplify content organically");
+  if (isHighLike) behaviors.push("strong passive engagement through likes");
+  if (hasAdvocacy) behaviors.push("organized fan projects (streaming, voting, charting)");
+  if (hasHype) behaviors.push("trend-driven — fans rally around viral moments");
+
+  const fanBehavior = behaviors.length > 0
+    ? behaviors.map((b) => b.charAt(0).toUpperCase() + b.slice(1)).join(". ") + "."
+    : "Fan behavior patterns will emerge as more content is collected.";
+
+  return {
+    topContentType,
+    contentBreakdown,
+    tone,
+    fanBehavior,
+    topHashtags,
+  };
 }

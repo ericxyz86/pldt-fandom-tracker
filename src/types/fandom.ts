@@ -97,6 +97,12 @@ export interface FandomWithMetrics extends Fandom {
   avgEngagementRate: number;
   weeklyGrowthRate: number;
   latestMetrics: MetricSnapshot[];
+  hasBeenScraped: boolean;
+  aiKeyBehavior?: string | null;
+  aiEngagementPotential?: string | null;
+  aiCommunityTone?: string | null;
+  aiRationale?: string | null;
+  aiSuggestedAction?: string | null;
 }
 
 export interface FandomDiscovery {
@@ -111,6 +117,52 @@ export interface FandomDiscovery {
   confidence: number; // 0-100
 }
 
+export interface DiscoveredFandom {
+  id: string;
+  name: string;
+  slug: string;
+  description: string;
+  fandomGroup: string | null;
+  suggestedTier: FandomTier;
+  sizeScore: number;
+  sustainabilityScore: number;
+  growthScore: number;
+  overallScore: number;
+  estimatedSize: string;
+  sustainabilityRating: string;
+  growthPotential: string;
+  keyBehavior: string;
+  engagementPotential: string;
+  communityTone: string;
+  rationale: string;
+  suggestedPlatforms: string[];
+  suggestedDemographics: string[];
+  suggestedHandles: string[];
+  status: "discovered" | "dismissed" | "tracked" | "cleared";
+  trackedFandomId: string | null;
+  generatedAt: string;
+  dismissedAt: string | null;
+}
+
+export interface ScrapeRun {
+  id: string;
+  fandomId: string | null;
+  fandomName: string | null;
+  platform: Platform | null;
+  status: "pending" | "running" | "succeeded" | "failed";
+  startedAt: string;
+  finishedAt: string | null;
+  itemsCount: number;
+}
+
+export interface ContentInsight {
+  topContentType: string;
+  contentBreakdown: { type: string; count: number; percentage: number }[];
+  tone: string;
+  fanBehavior: string;
+  topHashtags: string[];
+}
+
 export interface Recommendation {
   id: string;
   fandomId: string;
@@ -123,4 +175,6 @@ export interface Recommendation {
   suggestedAction: string;
   estimatedReach: number;
   demographicTags: DemographicTag[];
+  contentInsight: ContentInsight;
+  hasBeenScraped: boolean;
 }

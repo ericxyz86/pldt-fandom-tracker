@@ -6,9 +6,12 @@ import { getAllFandoms } from "@/lib/services/fandom.service";
 
 export const dynamic = "force-dynamic";
 
-export async function GET() {
+export async function GET(req: NextRequest) {
   try {
-    const data = await getAllFandoms();
+    const { searchParams } = new URL(req.url);
+    const dateFrom = searchParams.get("from") || undefined;
+    const dateTo = searchParams.get("to") || undefined;
+    const data = await getAllFandoms(dateFrom, dateTo);
     return NextResponse.json(data);
   } catch (error) {
     console.error("Failed to fetch fandoms:", error);

@@ -21,6 +21,7 @@ import {
 } from "@/components/ui/table";
 import { formatNumber } from "@/lib/utils/format";
 import { PlatformIcon } from "@/components/dashboard/platform-icon";
+import { AIInsightCard } from "@/components/dashboard/ai-insight-card";
 import type { Platform, ContentItem } from "@/types/fandom";
 
 interface ContentWithFandom extends ContentItem {
@@ -83,6 +84,16 @@ export default function ContentPage() {
         </p>
       </div>
 
+      <AIInsightCard
+        page="content"
+        sections={[
+          { label: "Summary", key: "summary" },
+          { label: "Top Themes", key: "topPerformingThemes" },
+          { label: "Platform Breakdown", key: "platformBreakdown" },
+          { label: "Recommendation", key: "recommendation" },
+        ]}
+      />
+
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         <Card className="lg:col-span-2">
           <CardHeader className="flex flex-row items-center justify-between">
@@ -107,6 +118,7 @@ export default function ContentPage() {
               <TableHeader>
                 <TableRow>
                   <TableHead>Fandom</TableHead>
+                  <TableHead>Title</TableHead>
                   <TableHead>Platform</TableHead>
                   <TableHead>Type</TableHead>
                   <TableHead className="text-right">Likes</TableHead>
@@ -116,9 +128,18 @@ export default function ContentPage() {
               </TableHeader>
               <TableBody>
                 {filtered.slice(0, 15).map((item) => (
-                  <TableRow key={item.id}>
+                  <TableRow
+                    key={item.id}
+                    className={item.url ? "cursor-pointer hover:bg-muted/50" : ""}
+                    onClick={() => {
+                      if (item.url) window.open(item.url, "_blank", "noopener,noreferrer");
+                    }}
+                  >
                     <TableCell className="font-medium text-xs">
                       {item.fandomName}
+                    </TableCell>
+                    <TableCell className="text-xs text-muted-foreground max-w-[200px] truncate">
+                      {item.text || "—"}
                     </TableCell>
                     <TableCell>
                       <PlatformIcon platform={item.platform as Platform} />
@@ -134,8 +155,11 @@ export default function ContentPage() {
                     <TableCell className="text-right text-xs">
                       {formatNumber(item.comments)}
                     </TableCell>
-                    <TableCell className="text-right text-xs">
+                    <TableCell className="text-right text-xs flex items-center justify-end gap-1.5">
                       {formatNumber(item.views)}
+                      {item.url && (
+                        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-muted-foreground shrink-0"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+                      )}
                     </TableCell>
                   </TableRow>
                 ))}

@@ -11,9 +11,16 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import type { FandomWithMetrics } from "@/types/fandom";
+import { useSegment } from "@/lib/context/segment-context";
+import type { FandomWithMetrics, DemographicTag } from "@/types/fandom";
+
+const segmentTagMap: Record<string, DemographicTag[]> = {
+  postpaid: ["abc"],
+  prepaid: ["cde"],
+};
 
 export default function FandomsPage() {
+  const { segment } = useSegment();
   const [search, setSearch] = useState("");
   const [tierFilter, setTierFilter] = useState<string>("all");
   const [allFandoms, setAllFandoms] = useState<FandomWithMetrics[]>([]);
@@ -31,6 +38,14 @@ export default function FandomsPage() {
 
   const filtered = useMemo(() => {
     let result = allFandoms;
+    if (segment !== "all") {
+      const tags = segmentTagMap[segment];
+      if (tags) {
+        result = result.filter((f) =>
+          tags.some((tag) => f.demographicTags.includes(tag))
+        );
+      }
+    }
     if (search) {
       const q = search.toLowerCase();
       result = result.filter(
@@ -43,7 +58,7 @@ export default function FandomsPage() {
       result = result.filter((f) => f.tier === tierFilter);
     }
     return result;
-  }, [allFandoms, search, tierFilter]);
+  }, [allFandoms, segment, search, tierFilter]);
 
   if (loading) {
     return (
@@ -61,7 +76,7 @@ export default function FandomsPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-bold">All Fandoms</h1>
+        <h1 className="text-2xl font-bold">Tracked Fandoms</h1>
         <p className="text-sm text-muted-foreground mt-1">
           Browse and search all tracked fandoms
         </p>

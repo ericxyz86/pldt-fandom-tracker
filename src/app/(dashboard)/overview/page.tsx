@@ -6,6 +6,7 @@ import { FandomTierSection } from "@/components/dashboard/fandom-tier-section";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
 import { useSegment } from "@/lib/context/segment-context";
+import { useDateRange } from "@/lib/context/date-range-context";
 import type {
   FandomTier,
   FandomWithMetrics,
@@ -21,18 +22,24 @@ const segmentTagMap: Record<string, DemographicTag[]> = {
 
 export default function OverviewPage() {
   const { segment } = useSegment();
+  const { from, to } = useDateRange();
   const [allFandoms, setAllFandoms] = useState<FandomWithMetrics[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    fetch("/api/fandoms")
+    setLoading(true);
+    const params = new URLSearchParams();
+    if (from) params.set("from", from);
+    if (to) params.set("to", to);
+    const qs = params.toString();
+    fetch(`/api/fandoms${qs ? `?${qs}` : ""}`)
       .then((r) => r.json())
       .then((data) => {
         setAllFandoms(data);
         setLoading(false);
       })
       .catch(() => setLoading(false));
-  }, []);
+  }, [from, to]);
 
   const filteredFandoms = useMemo(() => {
     if (segment === "all") return allFandoms;

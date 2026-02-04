@@ -13,6 +13,7 @@ import {
 } from "@/components/ui/select";
 import { formatNumber } from "@/lib/utils/format";
 import { PlatformIcon } from "@/components/dashboard/platform-icon";
+import { AIInsightCard } from "@/components/dashboard/ai-insight-card";
 import type { Platform, FandomTier, Influencer } from "@/types/fandom";
 
 interface InfluencerWithFandom extends Influencer {
@@ -78,6 +79,16 @@ export default function InfluencersPage() {
           </SelectContent>
         </Select>
       </div>
+
+      <AIInsightCard
+        page="influencers"
+        sections={[
+          { label: "Summary", key: "summary" },
+          { label: "Tier Analysis", key: "tierAnalysis" },
+          { label: "Partnership Picks", key: "topPartnershipPicks" },
+          { label: "Recommendation", key: "recommendation" },
+        ]}
+      />
 
       {filtered.length === 0 ? (
         <Card>

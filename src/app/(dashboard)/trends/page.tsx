@@ -9,6 +9,7 @@ import {
   ChartTooltipContent,
 } from "@/components/ui/chart";
 import { Line, LineChart, CartesianGrid, XAxis, YAxis } from "recharts";
+import { AIInsightCard } from "@/components/dashboard/ai-insight-card";
 
 const COLORS = [
   "#2563eb",
@@ -89,6 +90,16 @@ export default function TrendsPage() {
           Google Trends interest comparison across Philippine fandoms
         </p>
       </div>
+
+      <AIInsightCard
+        page="trends"
+        sections={[
+          { label: "Summary", key: "summary" },
+          { label: "Top Mover", key: "topMover" },
+          { label: "Patterns", key: "patterns" },
+          { label: "Recommendation", key: "recommendation" },
+        ]}
+      />
 
       {trends.length === 0 ? (
         <Card>

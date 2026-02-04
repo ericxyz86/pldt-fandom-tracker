@@ -48,6 +48,12 @@ export const fandoms = pgTable("fandoms", {
   imageUrl: text("image_url"),
   fandomGroup: text("fandom_group"),
   demographicTags: text("demographic_tags").array().notNull().default([]),
+  aiKeyBehavior: text("ai_key_behavior"),
+  aiEngagementPotential: text("ai_engagement_potential"),
+  aiCommunityTone: text("ai_community_tone"),
+  aiRationale: text("ai_rationale"),
+  aiSuggestedAction: text("ai_suggested_action"),
+  aiGeneratedAt: timestamp("ai_generated_at"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
@@ -141,6 +147,47 @@ export const googleTrends = pgTable("google_trends", {
   date: date("date").notNull(),
   interestValue: integer("interest_value").default(0).notNull(),
   region: text("region").default("PH").notNull(),
+});
+
+export const aiPageInsights = pgTable("ai_page_insights", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  page: text("page").notNull().unique(),
+  insights: text("insights").notNull(),
+  generatedAt: timestamp("generated_at").notNull(),
+});
+
+export const discoveryStatusEnum = pgEnum("discovery_status", [
+  "discovered",
+  "dismissed",
+  "tracked",
+  "cleared",
+]);
+
+export const aiDiscoveredFandoms = pgTable("ai_discovered_fandoms", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  name: text("name").notNull(),
+  slug: text("slug").unique().notNull(),
+  description: text("description").notNull(),
+  fandomGroup: text("fandom_group"),
+  suggestedTier: fandomTierEnum("suggested_tier").notNull(),
+  sizeScore: integer("size_score").notNull(),
+  sustainabilityScore: integer("sustainability_score").notNull(),
+  growthScore: integer("growth_score").notNull(),
+  overallScore: integer("overall_score").notNull(),
+  estimatedSize: text("estimated_size").notNull(),
+  sustainabilityRating: text("sustainability_rating").notNull(),
+  growthPotential: text("growth_potential").notNull(),
+  keyBehavior: text("key_behavior").notNull(),
+  engagementPotential: text("engagement_potential").notNull(),
+  communityTone: text("community_tone").notNull(),
+  rationale: text("rationale").notNull(),
+  suggestedPlatforms: text("suggested_platforms").array().notNull(),
+  suggestedDemographics: text("suggested_demographics").array().notNull(),
+  suggestedHandles: text("suggested_handles").array().notNull(),
+  status: discoveryStatusEnum("status").default("discovered").notNull(),
+  trackedFandomId: uuid("tracked_fandom_id").references(() => fandoms.id),
+  generatedAt: timestamp("generated_at").notNull(),
+  dismissedAt: timestamp("dismissed_at"),
 });
 
 export const scrapeRuns = pgTable("scrape_runs", {

@@ -30,6 +30,8 @@ interface NormalizedInfluencer {
   profileUrl: string | null;
   avatarUrl: string | null;
   bio: string | null;
+  location: string | null;
+  postCount: number;
 }
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -161,16 +163,136 @@ export function normalizeInfluencers(
   platform: Platform,
   rawData: any[]
 ): NormalizedInfluencer[] {
-  return rawData.map((item) => ({
-    username: item.username || item.handle || "",
-    displayName: item.fullName || item.displayName || item.name || null,
-    followers: item.followersCount || item.followers || 0,
-    engagementRate: item.engagementRate || 0,
-    profileUrl: item.profileUrl || item.url || null,
-    avatarUrl:
-      item.profilePicUrl || item.avatar || item.profileImageUrl || null,
-    bio: item.biography || item.bio || item.description || null,
-  }));
+  const extractors: Record<Platform, (item: any) => NormalizedInfluencer | null> = {
+    instagram: (item) => {
+      // Instagram scraper returns posts from a profile. Each post has ownerUsername
+      // (the profile being scraped). Only extract the actual profile owner, and use
+      // the follower count directly from the profile-level field.
+      const username = item.ownerUsername || "";
+      if (!username) return null;
+      // ownerFollowerCount (not ownerFollowersCount) is the profile-level field
+      // from apify/instagram-scraper. Fall back to ownerFollowersCount.
+      const followers = item.ownerFollowerCount || item.ownerFollowersCount || 0;
+      return {
+        username,
+        displayName: item.ownerFullName || null,
+        followers,
+        engagementRate: 0,
+        profileUrl: `https://www.instagram.com/${username}`,
+        avatarUrl: item.ownerProfilePicUrl || null,
+        bio: null,
+        location: item.locationName || null,
+        postCount: 0,
+      };
+    },
+    tiktok: (item) => {
+      const meta = item.authorMeta || {};
+      const username = meta.name || item.author?.uniqueId || item.authorName || "";
+      if (!username) return null;
+      return {
+        username,
+        displayName: meta.nickName || meta.nickname || item.author?.nickname || null,
+        followers: meta.fans || meta.followers || 0,
+        engagementRate: 0,
+        profileUrl: `https://www.tiktok.com/@${username}`,
+        avatarUrl: meta.avatar || null,
+        bio: meta.signature || null,
+        location: meta.region || item.author?.region || null,
+        postCount: 0,
+      };
+    },
+    twitter: (item) => {
+      const user = item.user || item.author || {};
+      const username = user.screen_name || user.userName || item.username || "";
+      if (!username) return null;
+      return {
+        username,
+        displayName: user.name || user.displayName || null,
+        followers: user.followers_count || user.followers || 0,
+        engagementRate: 0,
+        profileUrl: `https://x.com/${username}`,
+        avatarUrl: user.profile_image_url_https || user.profileImageUrl || null,
+        bio: user.description || null,
+        location: user.location || null,
+        postCount: 0,
+      };
+    },
+    youtube: (item) => {
+      const channelName = item.channelName || item.channelTitle || "";
+      const channelUrl = item.channelUrl || "";
+      if (!channelName) return null;
+      return {
+        username: channelName,
+        displayName: channelName,
+        followers: item.channelSubscribers || 0,
+        engagementRate: 0,
+        profileUrl: channelUrl || null,
+        avatarUrl: item.channelThumbnail || null,
+        bio: null,
+        location: item.channelCountry || null,
+        postCount: 0,
+      };
+    },
+    facebook: (item) => {
+      const username = item.pageName || item.userName || "";
+      if (!username) return null;
+      return {
+        username,
+        displayName: item.pageName || null,
+        followers: item.pageLikes || item.pageFollowers || 0,
+        engagementRate: 0,
+        profileUrl: item.pageUrl || null,
+        avatarUrl: null,
+        bio: null,
+        location: item.pageLocation || item.location || null,
+        postCount: 0,
+      };
+    },
+    reddit: (item) => {
+      const username = item.author || item.username || "";
+      if (!username || username === "[deleted]" || username === "AutoModerator") return null;
+      return {
+        username,
+        displayName: null,
+        followers: item.authorKarma || 0,
+        engagementRate: 0,
+        profileUrl: `https://www.reddit.com/user/${username}`,
+        avatarUrl: null,
+        bio: null,
+        location: null,
+        postCount: 0,
+      };
+    },
+  };
+
+  const extractor = extractors[platform];
+  if (!extractor) return [];
+
+  // Deduplicate by username, keeping highest followers and counting posts
+  const byUsername = new Map<string, NormalizedInfluencer>();
+  for (const item of rawData) {
+    const inf = extractor(item);
+    if (!inf || !inf.username) continue;
+    const key = inf.username.toLowerCase();
+    const existing = byUsername.get(key);
+    if (!existing) {
+      inf.postCount = 1;
+      byUsername.set(key, inf);
+    } else {
+      existing.postCount++;
+      if (inf.followers > existing.followers) {
+        existing.followers = inf.followers;
+        existing.displayName = inf.displayName || existing.displayName;
+        existing.avatarUrl = inf.avatarUrl || existing.avatarUrl;
+        existing.bio = inf.bio || existing.bio;
+      }
+      if (!existing.location && inf.location) {
+        existing.location = inf.location;
+      }
+    }
+  }
+
+  return Array.from(byUsername.values());
 }
 
 function normalizeInstagramMetrics(rawData: any[]): NormalizedMetric {

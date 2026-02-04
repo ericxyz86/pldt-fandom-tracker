@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
+import { useDateRange } from "@/lib/context/date-range-context";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
@@ -28,6 +29,19 @@ import type {
   Influencer,
 } from "@/types/fandom";
 
+const platformProfileUrls: Record<Platform, (username: string) => string> = {
+  instagram: (u) => `https://www.instagram.com/${u}`,
+  tiktok: (u) => `https://www.tiktok.com/@${u}`,
+  facebook: (u) => `https://www.facebook.com/${u}`,
+  youtube: (u) => `https://www.youtube.com/@${u}`,
+  twitter: (u) => `https://x.com/${u}`,
+  reddit: (u) => `https://www.reddit.com/user/${u}`,
+};
+
+function getProfileUrl(platform: Platform, username: string): string {
+  return platformProfileUrls[platform](username);
+}
+
 interface FandomDetail {
   id: string;
   name: string;
@@ -43,19 +57,26 @@ interface FandomDetail {
   weeklyGrowthRate: number;
   latestMetrics: MetricSnapshot[];
   content: ContentItem[];
-  influencers: Influencer[];
+  influencersByEngagement: Influencer[];
+  influencersByFollowers: Influencer[];
 }
 
 export default function FandomDetailPage() {
   const params = useParams();
   const slug = params.fandomId as string;
+  const { from, to } = useDateRange();
 
   const [fandom, setFandom] = useState<FandomDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
 
   useEffect(() => {
-    fetch(`/api/fandoms/${slug}`)
+    setLoading(true);
+    const qs = new URLSearchParams();
+    if (from) qs.set("from", from);
+    if (to) qs.set("to", to);
+    const query = qs.toString();
+    fetch(`/api/fandoms/${slug}${query ? `?${query}` : ""}`)
       .then((r) => {
         if (!r.ok) throw new Error("Not found");
         return r.json();
@@ -68,7 +89,7 @@ export default function FandomDetailPage() {
         setError(true);
         setLoading(false);
       });
-  }, [slug]);
+  }, [slug, from, to]);
 
   if (loading) {
     return (
@@ -197,6 +218,7 @@ export default function FandomDetailPage() {
                     <TableRow>
                       <TableHead>Platform</TableHead>
                       <TableHead>Type</TableHead>
+                      <TableHead>Post</TableHead>
                       <TableHead className="text-right">Likes</TableHead>
                       <TableHead className="text-right">Comments</TableHead>
                       <TableHead className="text-right">Shares</TableHead>
@@ -208,7 +230,13 @@ export default function FandomDetailPage() {
                       .sort((a, b) => b.likes - a.likes)
                       .slice(0, 10)
                       .map((item) => (
-                        <TableRow key={item.id}>
+                        <TableRow
+                          key={item.id}
+                          className={item.url ? "cursor-pointer hover:bg-muted/50" : ""}
+                          onClick={() => {
+                            if (item.url) window.open(item.url, "_blank", "noopener,noreferrer");
+                          }}
+                        >
                           <TableCell className="capitalize">
                             {item.platform}
                           </TableCell>
@@ -216,6 +244,9 @@ export default function FandomDetailPage() {
                             <Badge variant="outline" className="text-xs">
                               {item.contentType}
                             </Badge>
+                          </TableCell>
+                          <TableCell className="max-w-[280px] truncate text-sm text-muted-foreground">
+                            {item.text || "—"}
                           </TableCell>
                           <TableCell className="text-right">
                             {formatNumber(item.likes)}
@@ -226,8 +257,11 @@ export default function FandomDetailPage() {
                           <TableCell className="text-right">
                             {formatNumber(item.shares)}
                           </TableCell>
-                          <TableCell className="text-right">
+                          <TableCell className="text-right flex items-center justify-end gap-1.5">
                             {formatNumber(item.views)}
+                            {item.url && (
+                              <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-muted-foreground shrink-0"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+                            )}
                           </TableCell>
                         </TableRow>
                       ))}
@@ -239,61 +273,124 @@ export default function FandomDetailPage() {
         </TabsContent>
 
         <TabsContent value="influencers">
-          {fandom.influencers.length === 0 ? (
+          {(!fandom.influencersByEngagement || fandom.influencersByEngagement.length === 0) &&
+           (!fandom.influencersByFollowers || fandom.influencersByFollowers.length === 0) ? (
             <Card>
               <CardContent className="pt-6">
                 <p className="text-sm text-muted-foreground">No influencer data available yet.</p>
               </CardContent>
             </Card>
           ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {fandom.influencers
-                .sort((a, b) => b.relevanceScore - a.relevanceScore)
-                .map((inf) => (
-                  <Card key={inf.id}>
-                    <CardContent className="pt-4">
-                      <div className="flex items-start gap-3">
-                        <div className="flex h-10 w-10 items-center justify-center rounded-full bg-muted text-sm font-semibold">
-                          {inf.username.charAt(0).toUpperCase()}
-                        </div>
-                        <div className="flex-1">
-                          <p className="font-semibold text-sm">
-                            @{inf.username}
-                          </p>
-                          <p className="text-xs text-muted-foreground capitalize">
-                            {inf.platform}
-                          </p>
-                          <div className="grid grid-cols-3 gap-2 mt-2">
-                            <div>
-                              <p className="text-xs text-muted-foreground">
-                                Followers
-                              </p>
-                              <p className="text-sm font-medium">
-                                {formatNumber(inf.followers)}
-                              </p>
-                            </div>
-                            <div>
-                              <p className="text-xs text-muted-foreground">
-                                Eng. Rate
-                              </p>
-                              <p className="text-sm font-medium">
-                                {inf.engagementRate}%
-                              </p>
-                            </div>
-                            <div>
-                              <p className="text-xs text-muted-foreground">
-                                Score
-                              </p>
-                              <p className="text-sm font-medium">
-                                {inf.relevanceScore}
-                              </p>
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-                    </CardContent>
-                  </Card>
-                ))}
+            <div className="space-y-6">
+              {fandom.influencersByEngagement && fandom.influencersByEngagement.length > 0 && (
+                <div>
+                  <h3 className="text-sm font-semibold mb-3">Top by Engagement</h3>
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                    {fandom.influencersByEngagement.map((inf) => {
+                      const profileUrl = inf.profileUrl || getProfileUrl(inf.platform, inf.username);
+                      return (
+                        <a
+                          key={inf.id}
+                          href={profileUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="block group"
+                        >
+                          <Card className="transition-colors group-hover:border-primary/40 group-hover:shadow-sm">
+                            <CardContent className="pt-4">
+                              <div className="flex items-start gap-3">
+                                <div className="flex h-10 w-10 items-center justify-center rounded-full bg-muted text-sm font-semibold">
+                                  {inf.username.charAt(0).toUpperCase()}
+                                </div>
+                                <div className="flex-1">
+                                  <div className="flex items-center gap-1.5">
+                                    <p className="font-semibold text-sm">
+                                      @{inf.username}
+                                    </p>
+                                    <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+                                  </div>
+                                  <p className="text-xs text-muted-foreground capitalize">
+                                    {inf.platform}
+                                  </p>
+                                  <div className="grid grid-cols-3 gap-2 mt-2">
+                                    <div>
+                                      <p className="text-xs text-muted-foreground">Followers</p>
+                                      <p className="text-sm font-medium">{formatNumber(inf.followers)}</p>
+                                    </div>
+                                    <div>
+                                      <p className="text-xs text-muted-foreground">Eng. Rate</p>
+                                      <p className="text-sm font-medium">{inf.engagementRate}%</p>
+                                    </div>
+                                    <div>
+                                      <p className="text-xs text-muted-foreground">Score</p>
+                                      <p className="text-sm font-medium">{inf.relevanceScore}</p>
+                                    </div>
+                                  </div>
+                                </div>
+                              </div>
+                            </CardContent>
+                          </Card>
+                        </a>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {fandom.influencersByFollowers && fandom.influencersByFollowers.length > 0 && (
+                <div>
+                  <h3 className="text-sm font-semibold mb-3">Top by Followers</h3>
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                    {fandom.influencersByFollowers.map((inf) => {
+                      const profileUrl = inf.profileUrl || getProfileUrl(inf.platform, inf.username);
+                      return (
+                        <a
+                          key={inf.id}
+                          href={profileUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="block group"
+                        >
+                          <Card className="transition-colors group-hover:border-primary/40 group-hover:shadow-sm">
+                            <CardContent className="pt-4">
+                              <div className="flex items-start gap-3">
+                                <div className="flex h-10 w-10 items-center justify-center rounded-full bg-muted text-sm font-semibold">
+                                  {inf.username.charAt(0).toUpperCase()}
+                                </div>
+                                <div className="flex-1">
+                                  <div className="flex items-center gap-1.5">
+                                    <p className="font-semibold text-sm">
+                                      @{inf.username}
+                                    </p>
+                                    <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+                                  </div>
+                                  <p className="text-xs text-muted-foreground capitalize">
+                                    {inf.platform}
+                                  </p>
+                                  <div className="grid grid-cols-3 gap-2 mt-2">
+                                    <div>
+                                      <p className="text-xs text-muted-foreground">Followers</p>
+                                      <p className="text-sm font-medium">{formatNumber(inf.followers)}</p>
+                                    </div>
+                                    <div>
+                                      <p className="text-xs text-muted-foreground">Eng. Rate</p>
+                                      <p className="text-sm font-medium">{inf.engagementRate}%</p>
+                                    </div>
+                                    <div>
+                                      <p className="text-xs text-muted-foreground">Score</p>
+                                      <p className="text-sm font-medium">{inf.relevanceScore}</p>
+                                    </div>
+                                  </div>
+                                </div>
+                              </div>
+                            </CardContent>
+                          </Card>
+                        </a>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
             </div>
           )}
         </TabsContent>

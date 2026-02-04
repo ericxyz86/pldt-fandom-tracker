@@ -21,6 +21,7 @@ import {
   FileText,
   Star,
   Lightbulb,
+  Compass,
   Settings,
 } from "lucide-react";
 
@@ -31,6 +32,7 @@ const navItems = [
   { title: "Content", href: "/content", icon: FileText },
   { title: "Influencers", href: "/influencers", icon: Star },
   { title: "Recommendations", href: "/recommendations", icon: Lightbulb },
+  { title: "Discover", href: "/discover", icon: Compass },
 ];
 
 const bottomItems = [

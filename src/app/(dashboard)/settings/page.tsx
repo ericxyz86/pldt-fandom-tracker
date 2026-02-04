@@ -24,9 +24,15 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { TierBadge } from "@/components/dashboard/tier-badge";
 import { PlatformIcons } from "@/components/dashboard/platform-icon";
-import type { FandomWithMetrics, FandomDiscovery } from "@/types/fandom";
+import type { FandomWithMetrics, ScrapeRun } from "@/types/fandom";
 
 interface PipelineStatus {
   apify: {
@@ -68,31 +74,68 @@ export default function SettingsPage() {
     platforms: [{ platform: "tiktok", handle: "" }] as Array<{ platform: string; handle: string }>,
   });
 
-  // Delete state
-  const [deletingSlug, setDeletingSlug] = useState<string | null>(null);
+  // Edit Fandom dialog state
+  const [editDialogOpen, setEditDialogOpen] = useState(false);
+  const [editLoading, setEditLoading] = useState(false);
+  const [editError, setEditError] = useState<string | null>(null);
+  const [editingFandom, setEditingFandom] = useState<FandomWithMetrics | null>(null);
+  const [editFormData, setEditFormData] = useState({
+    name: "",
+    tier: "emerging" as "emerging" | "trending" | "existing",
+    description: "",
+    fandomGroup: "",
+    demographicTags: [] as string[],
+    platforms: [{ platform: "tiktok", handle: "" }] as Array<{ platform: string; handle: string }>,
+  });
 
-  // Discovery state
-  const [discoveries, setDiscoveries] = useState<FandomDiscovery[]>([]);
-  const [discoveriesLoading, setDiscoveriesLoading] = useState(false);
-  const [addingDiscovery, setAddingDiscovery] = useState<string | null>(null);
+  // Scrape activity state
+  const [scrapeRuns, setScrapeRuns] = useState<ScrapeRun[]>([]);
+  const [globalScraping, setGlobalScraping] = useState(false);
+  const [generatingInsights, setGeneratingInsights] = useState(false);
+  const [insightsResult, setInsightsResult] = useState<{
+    success: boolean;
+    message: string;
+  } | null>(null);
+
+  // Untrack state
+  const [untrackingSlug, setUntrackingSlug] = useState<string | null>(null);
 
   const fetchFandoms = useCallback(async () => {
     const data = await fetch("/api/fandoms").then((r) => r.json());
     setFandoms(data);
   }, []);
 
+  const fetchScrapeRuns = useCallback(async () => {
+    try {
+      const data = await fetch("/api/scrape/status").then((r) => r.json());
+      if (Array.isArray(data)) setScrapeRuns(data);
+    } catch {
+      // ignore
+    }
+  }, []);
+
   useEffect(() => {
     Promise.all([
       fetch("/api/fandoms").then((r) => r.json()),
       fetch("/api/settings/status").then((r) => r.json()),
+      fetch("/api/scrape/status").then((r) => r.json()).catch(() => []),
     ])
-      .then(([fandomData, statusData]) => {
+      .then(([fandomData, statusData, runsData]) => {
         setFandoms(fandomData);
         setStatus(statusData);
+        if (Array.isArray(runsData)) setScrapeRuns(runsData);
         setLoading(false);
       })
       .catch(() => setLoading(false));
   }, []);
+
+  // Poll scrape status while any run is "running"
+  useEffect(() => {
+    const hasRunning = scrapeRuns.some((r) => r.status === "running");
+    if (!hasRunning && !globalScraping) return;
+    const interval = setInterval(fetchScrapeRuns, 10000);
+    return () => clearInterval(interval);
+  }, [scrapeRuns, globalScraping, fetchScrapeRuns]);
 
   const handleAddFandom = useCallback(async () => {
     if (!formData.name.trim()) {
@@ -132,22 +175,76 @@ export default function SettingsPage() {
     }
   }, [formData, fetchFandoms]);
 
-  const handleDelete = useCallback(
-    async (slug: string) => {
-      setDeletingSlug(slug);
-      try {
-        const res = await fetch(`/api/fandoms?slug=${slug}`, {
-          method: "DELETE",
-        });
-        if (res.ok) {
-          await fetchFandoms();
-        }
-      } finally {
-        setDeletingSlug(null);
+  const openEditDialog = useCallback((fandom: FandomWithMetrics) => {
+    setEditingFandom(fandom);
+    setEditFormData({
+      name: fandom.name,
+      tier: fandom.tier,
+      description: fandom.description || "",
+      fandomGroup: fandom.fandomGroup || "",
+      demographicTags: [...fandom.demographicTags],
+      platforms: fandom.platforms.length > 0
+        ? fandom.platforms.map((p) => ({ platform: p.platform, handle: p.handle }))
+        : [{ platform: "tiktok", handle: "" }],
+    });
+    setEditError(null);
+    setEditDialogOpen(true);
+  }, []);
+
+  const handleEditFandom = useCallback(async () => {
+    if (!editingFandom) return;
+    if (!editFormData.name.trim()) {
+      setEditError("Name is required");
+      return;
+    }
+    setEditLoading(true);
+    setEditError(null);
+    try {
+      const res = await fetch(`/api/fandoms/${editingFandom.slug}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ...editFormData,
+          platforms: editFormData.platforms.filter((p) => p.handle.trim()),
+        }),
+      });
+      if (!res.ok) {
+        const data = await res.json();
+        setEditError(data.error || "Failed to update fandom");
+        return;
       }
-    },
-    [fetchFandoms]
-  );
+      setEditDialogOpen(false);
+      setEditingFandom(null);
+      await fetchFandoms();
+    } catch {
+      setEditError("Network error");
+    } finally {
+      setEditLoading(false);
+    }
+  }, [editingFandom, editFormData, fetchFandoms]);
+
+  const toggleEditDemographic = (tag: string) => {
+    setEditFormData((prev) => ({
+      ...prev,
+      demographicTags: prev.demographicTags.includes(tag)
+        ? prev.demographicTags.filter((t) => t !== tag)
+        : [...prev.demographicTags, tag],
+    }));
+  };
+
+  const addEditPlatformRow = () => {
+    setEditFormData((prev) => ({
+      ...prev,
+      platforms: [...prev.platforms, { platform: "tiktok", handle: "" }],
+    }));
+  };
+
+  const removeEditPlatformRow = (index: number) => {
+    setEditFormData((prev) => ({
+      ...prev,
+      platforms: prev.platforms.filter((_, i) => i !== index),
+    }));
+  };
 
   const toggleDemographic = (tag: string) => {
     setFormData((prev) => ({
@@ -172,38 +269,18 @@ export default function SettingsPage() {
     }));
   };
 
-  const loadDiscoveries = useCallback(async () => {
-    setDiscoveriesLoading(true);
-    try {
-      const data = await fetch("/api/discoveries").then((r) => r.json());
-      if (Array.isArray(data)) setDiscoveries(data);
-    } finally {
-      setDiscoveriesLoading(false);
-    }
-  }, []);
-
-  const handleAddDiscovery = useCallback(
-    async (d: FandomDiscovery) => {
-      setAddingDiscovery(d.name);
+  const handleUntrack = useCallback(
+    async (slug: string) => {
+      setUntrackingSlug(slug);
       try {
-        const res = await fetch("/api/fandoms", {
+        const res = await fetch(`/api/fandoms/untrack?slug=${slug}`, {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            name: d.name,
-            tier: d.suggestedTier,
-            description: `Auto-discovered from ${d.source} analysis (${d.occurrences} occurrences)`,
-            fandomGroup: d.suggestedGroup,
-            demographicTags: [],
-            platforms: [{ platform: d.platform, handle: d.name }],
-          }),
         });
         if (res.ok) {
-          setDiscoveries((prev) => prev.filter((dd) => dd.name !== d.name));
           await fetchFandoms();
         }
       } finally {
-        setAddingDiscovery(null);
+        setUntrackingSlug(null);
       }
     },
     [fetchFandoms]
@@ -246,6 +323,82 @@ export default function SettingsPage() {
     []
   );
 
+  const handleBatchScrape = useCallback(
+    async (slug: string) => {
+      setScrapingSlug(slug);
+      setScrapeResult(null);
+      try {
+        const res = await fetch("/api/scrape/batch", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ fandomSlug: slug }),
+        });
+        const data = await res.json();
+        if (res.ok) {
+          setScrapeResult({
+            slug,
+            success: true,
+            message: "All platforms scrape started",
+          });
+          // Start polling
+          setTimeout(fetchScrapeRuns, 3000);
+        } else {
+          setScrapeResult({
+            slug,
+            success: false,
+            message: data.error || "Batch scrape failed",
+          });
+        }
+      } catch {
+        setScrapeResult({ slug, success: false, message: "Network error" });
+      } finally {
+        setScrapingSlug(null);
+      }
+    },
+    [fetchScrapeRuns]
+  );
+
+  const handleGenerateInsights = useCallback(async () => {
+    setGeneratingInsights(true);
+    setInsightsResult(null);
+    try {
+      const res = await fetch("/api/fandoms/generate-insights", {
+        method: "POST",
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setInsightsResult({
+          success: true,
+          message: `Generated insights for ${data.succeeded}/${data.total} fandoms`,
+        });
+        await fetchFandoms();
+      } else {
+        setInsightsResult({
+          success: false,
+          message: data.error || "Failed to generate insights",
+        });
+      }
+    } catch {
+      setInsightsResult({ success: false, message: "Network error" });
+    } finally {
+      setGeneratingInsights(false);
+    }
+  }, [fetchFandoms]);
+
+  const handleGlobalScrape = useCallback(async () => {
+    setGlobalScraping(true);
+    try {
+      await fetch("/api/scrape/batch", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({}),
+      });
+      setTimeout(fetchScrapeRuns, 3000);
+    } catch {
+      // ignore
+    }
+  }, [fetchScrapeRuns]);
+
   if (loading) {
     return (
       <div className="space-y-6">
@@ -268,6 +421,38 @@ export default function SettingsPage() {
       <Card>
         <CardHeader className="flex flex-row items-center justify-between">
           <CardTitle className="text-sm">Tracked Fandoms</CardTitle>
+          <div className="flex items-center gap-2">
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={handleGenerateInsights}
+            disabled={generatingInsights}
+          >
+            {generatingInsights ? (
+              <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="mr-1 animate-spin"><path d="M21 12a9 9 0 1 1-6.219-8.56" /></svg>
+            ) : (
+              <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="mr-1"><path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z"/></svg>
+            )}
+            {generatingInsights ? "Generating..." : "Generate AI Insights"}
+          </Button>
+          {insightsResult && (
+            <span className={`text-xs ${insightsResult.success ? "text-emerald-600" : "text-red-500"}`}>
+              {insightsResult.message}
+            </span>
+          )}
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={handleGlobalScrape}
+            disabled={globalScraping || !status?.apify.configured}
+          >
+            {globalScraping ? (
+              <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="mr-1 animate-spin"><path d="M21 12a9 9 0 1 1-6.219-8.56" /></svg>
+            ) : (
+              <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="mr-1"><path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" /><path d="M3 3v5h5" /><path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16" /><path d="M16 16h5v5" /></svg>
+            )}
+            {globalScraping ? "Scraping..." : "Scrape All Fandoms"}
+          </Button>
           <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
             <DialogTrigger asChild>
               <Button size="sm" variant="outline">
@@ -481,6 +666,199 @@ export default function SettingsPage() {
               </DialogFooter>
             </DialogContent>
           </Dialog>
+          <Dialog open={editDialogOpen} onOpenChange={setEditDialogOpen}>
+            <DialogContent className="max-h-[85vh] overflow-y-auto">
+              <DialogHeader>
+                <DialogTitle>Edit Fandom</DialogTitle>
+                <DialogDescription>
+                  Update fandom details and platform handles.
+                </DialogDescription>
+              </DialogHeader>
+              <div className="space-y-4">
+                <div className="space-y-2">
+                  <Label htmlFor="edit-fandom-name">Name</Label>
+                  <Input
+                    id="edit-fandom-name"
+                    value={editFormData.name}
+                    onChange={(e) =>
+                      setEditFormData((prev) => ({ ...prev, name: e.target.value }))
+                    }
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <Label>Tier</Label>
+                  <div className="flex gap-2">
+                    {TIER_OPTIONS.map((t) => (
+                      <Button
+                        key={t}
+                        type="button"
+                        size="sm"
+                        variant={editFormData.tier === t ? "default" : "outline"}
+                        onClick={() =>
+                          setEditFormData((prev) => ({ ...prev, tier: t }))
+                        }
+                        className="text-xs capitalize"
+                      >
+                        {t}
+                      </Button>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="edit-fandom-group">Group</Label>
+                  <Input
+                    id="edit-fandom-group"
+                    placeholder="e.g. P-Pop, K-Pop, Reality TV"
+                    value={editFormData.fandomGroup}
+                    onChange={(e) =>
+                      setEditFormData((prev) => ({
+                        ...prev,
+                        fandomGroup: e.target.value,
+                      }))
+                    }
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="edit-fandom-desc">Description</Label>
+                  <Input
+                    id="edit-fandom-desc"
+                    placeholder="Brief description..."
+                    value={editFormData.description}
+                    onChange={(e) =>
+                      setEditFormData((prev) => ({
+                        ...prev,
+                        description: e.target.value,
+                      }))
+                    }
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <Label>Demographics</Label>
+                  <div className="flex flex-wrap gap-2">
+                    {DEMOGRAPHIC_OPTIONS.map((tag) => (
+                      <Button
+                        key={tag}
+                        type="button"
+                        size="sm"
+                        variant={
+                          editFormData.demographicTags.includes(tag)
+                            ? "default"
+                            : "outline"
+                        }
+                        onClick={() => toggleEditDemographic(tag)}
+                        className="text-xs"
+                      >
+                        {tag === "gen_z"
+                          ? "Gen Z"
+                          : tag === "gen_y"
+                            ? "Gen Y"
+                            : tag.toUpperCase()}
+                      </Button>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <Label>Platforms</Label>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="ghost"
+                      onClick={addEditPlatformRow}
+                      className="text-xs h-6"
+                    >
+                      + Add Platform
+                    </Button>
+                  </div>
+                  {editFormData.platforms.map((p, i) => (
+                    <div key={i} className="flex gap-2 items-center">
+                      <select
+                        value={p.platform}
+                        onChange={(e) =>
+                          setEditFormData((prev) => ({
+                            ...prev,
+                            platforms: prev.platforms.map((pp, pi) =>
+                              pi === i
+                                ? { ...pp, platform: e.target.value }
+                                : pp
+                            ),
+                          }))
+                        }
+                        className="h-9 rounded-md border border-input bg-background px-3 text-xs"
+                      >
+                        {PLATFORM_OPTIONS.map((pl) => (
+                          <option key={pl} value={pl}>
+                            {pl}
+                          </option>
+                        ))}
+                      </select>
+                      <Input
+                        placeholder="Handle (e.g. @username)"
+                        value={p.handle}
+                        onChange={(e) =>
+                          setEditFormData((prev) => ({
+                            ...prev,
+                            platforms: prev.platforms.map((pp, pi) =>
+                              pi === i
+                                ? { ...pp, handle: e.target.value }
+                                : pp
+                            ),
+                          }))
+                        }
+                        className="text-xs"
+                      />
+                      {editFormData.platforms.length > 1 && (
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => removeEditPlatformRow(i)}
+                          className="h-9 w-9 p-0 shrink-0"
+                        >
+                          <svg
+                            xmlns="http://www.w3.org/2000/svg"
+                            width="14"
+                            height="14"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="2"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                          >
+                            <path d="M18 6 6 18" />
+                            <path d="m6 6 12 12" />
+                          </svg>
+                        </Button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+
+                {editError && (
+                  <p className="text-sm text-red-500">{editError}</p>
+                )}
+              </div>
+              <DialogFooter>
+                <Button
+                  variant="outline"
+                  onClick={() => setEditDialogOpen(false)}
+                  disabled={editLoading}
+                >
+                  Cancel
+                </Button>
+                <Button onClick={handleEditFandom} disabled={editLoading}>
+                  {editLoading ? "Saving..." : "Save Changes"}
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+          </div>
         </CardHeader>
         <CardContent>
           <Table>
@@ -539,60 +917,43 @@ export default function SettingsPage() {
                           {scrapeResult.message}
                         </span>
                       )}
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            disabled={scrapingSlug === f.slug || !status?.apify.configured}
+                          >
+                            {scrapingSlug === f.slug ? (
+                              <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="animate-spin"><path d="M21 12a9 9 0 1 1-6.219-8.56" /></svg>
+                            ) : (
+                              <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" /><path d="M3 3v5h5" /><path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16" /><path d="M16 16h5v5" /></svg>
+                            )}
+                            <span className="ml-1 text-xs">
+                              {scrapingSlug === f.slug ? "Scraping..." : "Scrape"}
+                            </span>
+                            <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="ml-1"><path d="m6 9 6 6 6-6"/></svg>
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end">
+                          <DropdownMenuItem onClick={() => handleBatchScrape(f.slug)}>
+                            All Platforms
+                          </DropdownMenuItem>
+                          {f.platforms.map((p) => (
+                            <DropdownMenuItem
+                              key={p.platform}
+                              onClick={() => handleScrape(f.slug, p.platform)}
+                            >
+                              <span className="capitalize">{p.platform}</span>
+                            </DropdownMenuItem>
+                          ))}
+                        </DropdownMenuContent>
+                      </DropdownMenu>
                       <Button
                         size="sm"
                         variant="ghost"
-                        disabled={scrapingSlug === f.slug || !status?.apify.configured}
-                        onClick={() =>
-                          handleScrape(
-                            f.slug,
-                            f.platforms[0]?.platform || "tiktok"
-                          )
-                        }
-                      >
-                        {scrapingSlug === f.slug ? (
-                          <svg
-                            xmlns="http://www.w3.org/2000/svg"
-                            width="14"
-                            height="14"
-                            viewBox="0 0 24 24"
-                            fill="none"
-                            stroke="currentColor"
-                            strokeWidth="2"
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            className="animate-spin"
-                          >
-                            <path d="M21 12a9 9 0 1 1-6.219-8.56" />
-                          </svg>
-                        ) : (
-                          <svg
-                            xmlns="http://www.w3.org/2000/svg"
-                            width="14"
-                            height="14"
-                            viewBox="0 0 24 24"
-                            fill="none"
-                            stroke="currentColor"
-                            strokeWidth="2"
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                          >
-                            <path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
-                            <path d="M3 3v5h5" />
-                            <path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16" />
-                            <path d="M16 16h5v5" />
-                          </svg>
-                        )}
-                        <span className="ml-1 text-xs">
-                          {scrapingSlug === f.slug ? "Scraping..." : "Scrape"}
-                        </span>
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        className="text-muted-foreground hover:text-red-500"
-                        disabled={deletingSlug === f.slug}
-                        onClick={() => handleDelete(f.slug)}
+                        className="text-muted-foreground hover:text-foreground"
+                        onClick={() => openEditDialog(f)}
                       >
                         <svg
                           xmlns="http://www.w3.org/2000/svg"
@@ -605,9 +966,31 @@ export default function SettingsPage() {
                           strokeLinecap="round"
                           strokeLinejoin="round"
                         >
-                          <path d="M3 6h18" />
-                          <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6" />
-                          <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" />
+                          <path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z" />
+                          <path d="m15 5 4 4" />
+                        </svg>
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="text-muted-foreground hover:text-violet-600"
+                        title="Back to Discover"
+                        disabled={untrackingSlug === f.slug}
+                        onClick={() => handleUntrack(f.slug)}
+                      >
+                        <svg
+                          xmlns="http://www.w3.org/2000/svg"
+                          width="14"
+                          height="14"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="2"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                        >
+                          <circle cx="12" cy="12" r="10" />
+                          <polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88 16.24 7.76" />
                         </svg>
                       </Button>
                     </div>
@@ -619,116 +1002,73 @@ export default function SettingsPage() {
         </CardContent>
       </Card>
 
-      <Card>
-        <CardHeader className="flex flex-row items-center justify-between">
-          <CardTitle className="text-sm">Fandom Discovery</CardTitle>
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={loadDiscoveries}
-            disabled={discoveriesLoading}
-          >
-            {discoveriesLoading ? (
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                width="14"
-                height="14"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                className="mr-1 animate-spin"
-              >
-                <path d="M21 12a9 9 0 1 1-6.219-8.56" />
-              </svg>
-            ) : (
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                width="14"
-                height="14"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                className="mr-1"
-              >
-                <circle cx="11" cy="11" r="8" />
-                <path d="m21 21-4.3-4.3" />
-              </svg>
-            )}
-            Scan for New Fandoms
-          </Button>
-        </CardHeader>
-        <CardContent>
-          {discoveries.length === 0 ? (
-            <p className="text-sm text-muted-foreground">
-              Click &quot;Scan for New Fandoms&quot; to analyze scraped content for
-              untracked fandom communities. The system examines hashtags,
-              mentions, and content patterns across all platforms.
-            </p>
-          ) : (
+      {scrapeRuns.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-sm">Scrape Activity</CardTitle>
+          </CardHeader>
+          <CardContent>
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Name</TableHead>
-                  <TableHead>Source</TableHead>
+                  <TableHead>Fandom</TableHead>
                   <TableHead>Platform</TableHead>
-                  <TableHead>Occurrences</TableHead>
-                  <TableHead>Confidence</TableHead>
-                  <TableHead>Group</TableHead>
-                  <TableHead className="text-right">Action</TableHead>
+                  <TableHead>Status</TableHead>
+                  <TableHead className="text-right">Items</TableHead>
+                  <TableHead className="text-right">Duration</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {discoveries.map((d) => (
-                  <TableRow key={d.name}>
-                    <TableCell className="font-medium">{d.name}</TableCell>
-                    <TableCell>
-                      <Badge variant="secondary" className="text-[10px]">
-                        {d.source}
-                      </Badge>
-                    </TableCell>
-                    <TableCell className="text-xs">{d.platform}</TableCell>
-                    <TableCell className="text-xs">{d.occurrences}</TableCell>
-                    <TableCell>
-                      <Badge
-                        variant="outline"
-                        className={`text-[10px] ${
-                          d.confidence >= 60
-                            ? "text-emerald-600 border-emerald-200"
-                            : d.confidence >= 30
-                              ? "text-amber-600 border-amber-200"
-                              : "text-muted-foreground"
-                        }`}
-                      >
-                        {d.confidence}%
-                      </Badge>
-                    </TableCell>
-                    <TableCell className="text-xs text-muted-foreground">
-                      {d.suggestedGroup}
-                    </TableCell>
-                    <TableCell className="text-right">
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        className="text-xs"
-                        disabled={addingDiscovery === d.name}
-                        onClick={() => handleAddDiscovery(d)}
-                      >
-                        {addingDiscovery === d.name ? "Adding..." : "Track"}
-                      </Button>
-                    </TableCell>
-                  </TableRow>
-                ))}
+                {scrapeRuns.slice(0, 50).map((run) => {
+                  const duration =
+                    run.startedAt && run.finishedAt
+                      ? Math.round(
+                          (new Date(run.finishedAt).getTime() -
+                            new Date(run.startedAt).getTime()) /
+                            1000
+                        )
+                      : null;
+                  return (
+                    <TableRow key={run.id}>
+                      <TableCell className="text-sm">
+                        {run.fandomName || "—"}
+                      </TableCell>
+                      <TableCell className="text-xs capitalize">
+                        {run.platform || "—"}
+                      </TableCell>
+                      <TableCell>
+                        <Badge
+                          variant="outline"
+                          className={`text-[10px] ${
+                            run.status === "succeeded"
+                              ? "text-emerald-600 border-emerald-200"
+                              : run.status === "running"
+                                ? "text-amber-600 border-amber-200"
+                                : run.status === "failed"
+                                  ? "text-red-500 border-red-200"
+                                  : "text-muted-foreground"
+                          }`}
+                        >
+                          {run.status === "running" && (
+                            <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="mr-1 animate-spin"><path d="M21 12a9 9 0 1 1-6.219-8.56" /></svg>
+                          )}
+                          {run.status}
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="text-right text-xs">
+                        {run.itemsCount}
+                      </TableCell>
+                      <TableCell className="text-right text-xs text-muted-foreground">
+                        {duration !== null ? `${duration}s` : "—"}
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
               </TableBody>
             </Table>
-          )}
-        </CardContent>
-      </Card>
+          </CardContent>
+        </Card>
+      )}
 
       <Card>
         <CardHeader>
@@ -740,29 +1080,15 @@ export default function SettingsPage() {
               <h4 className="text-sm font-medium mb-2">Scrape Schedule</h4>
               <div className="space-y-2 text-xs text-muted-foreground">
                 <div className="flex justify-between">
-                  <span>Profile Stats</span>
-                  <Badge variant="outline" className="text-[10px]">
-                    Every 6 hours
-                  </Badge>
-                </div>
-                <div className="flex justify-between">
-                  <span>Content / Posts</span>
+                  <span>All Data (Cron)</span>
                   <Badge variant="outline" className="text-[10px]">
                     Every 12 hours
                   </Badge>
                 </div>
-                <div className="flex justify-between">
-                  <span>Google Trends</span>
-                  <Badge variant="outline" className="text-[10px]">
-                    Daily
-                  </Badge>
-                </div>
-                <div className="flex justify-between">
-                  <span>Influencer Discovery</span>
-                  <Badge variant="outline" className="text-[10px]">
-                    Weekly
-                  </Badge>
-                </div>
+                <p className="text-[10px] pt-1">
+                  Automated cron scrapes all fandoms and platforms every 12 hours.
+                  Use the manual buttons above for immediate refreshes.
+                </p>
               </div>
             </div>
 
