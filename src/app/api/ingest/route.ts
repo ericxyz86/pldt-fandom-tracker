@@ -39,7 +39,7 @@ export async function POST(req: NextRequest) {
     await updateScrapeRun(datasetId, "failed", 0);
     return NextResponse.json(
       {
-        error: `Ingest failed: ${error instanceof Error ? error.message : "Unknown error"}`,
+        error: "Ingest failed",
       },
       { status: 500 }
     );
