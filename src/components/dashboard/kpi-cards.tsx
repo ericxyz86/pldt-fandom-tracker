@@ -19,11 +19,15 @@ export function KpiCards({ fandoms }: KpiCardsProps) {
     fandoms.length > 0
       ? fandoms.reduce((s, f) => s + f.avgEngagementRate, 0) / fandoms.length
       : 0;
-  const topFandom = fandoms.reduce(
-    (best, f) =>
-      f.weeklyGrowthRate > (best?.weeklyGrowthRate ?? -Infinity) ? f : best,
-    fandoms[0]
-  );
+  const topFandom = fandoms.reduce((best, f) => {
+    if (!best) return f;
+    // Primary: highest growth rate
+    if (f.weeklyGrowthRate > best.weeklyGrowthRate) return f;
+    if (f.weeklyGrowthRate < best.weeklyGrowthRate) return best;
+    // Tiebreaker: highest engagement rate
+    if (f.avgEngagementRate > best.avgEngagementRate) return f;
+    return best;
+  }, fandoms[0]);
 
   const kpis = [
     {
