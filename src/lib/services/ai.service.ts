@@ -1,10 +1,16 @@
 import OpenAI from "openai";
 import { db } from "@/lib/db";
 import { fandoms, fandomPlatforms, contentItems, aiPageInsights, aiDiscoveredFandoms } from "@/lib/db/schema";
-import { eq, desc, inArray } from "drizzle-orm";
+import { eq, desc } from "drizzle-orm";
 import { getAllTrends, getAllContent, getAllInfluencers } from "@/lib/services/fandom.service";
+import {
+  verifyFandomFollowers,
+  computeVerificationStatus,
+  type EstimatedFollower,
+} from "@/lib/apify/verify";
 
 const DELAY_BETWEEN_CALLS_MS = 1500;
+const ENABLE_VERIFICATION = process.env.DISCOVERY_VERIFY_FOLLOWERS !== "false";
 
 function delay(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -423,7 +429,13 @@ function deduplicateFollowers(
   return Array.from(byPlatform.values());
 }
 
-export async function discoverNewFandoms() {
+export interface DiscoverOptions {
+  verify?: boolean;
+}
+
+export async function discoverNewFandoms(options: DiscoverOptions = {}) {
+  const { verify = ENABLE_VERIFICATION } = options;
+
   const client = getOpenAIClient();
   if (!client) {
     throw new Error("OPENAI_API_KEY not configured");
@@ -581,6 +593,9 @@ Return as many fandoms as possible (at least 25-30). We will select the top 20 b
     overallScore: number;
     isCleared: boolean;
     slug: string;
+    estimatedFollowers: EstimatedFollower[];
+    sustainabilityScore: number;
+    growthScore: number;
   }[] = [];
 
   for (const f of parsed.fandoms) {
@@ -637,12 +652,17 @@ Return as many fandoms as possible (at least 25-30). We will select the top 20 b
         suggestedPlatforms: f.suggestedPlatforms,
         suggestedDemographics: f.suggestedDemographics,
         suggestedHandles,
+        verifiedFollowers: "[]",
+        verificationStatus: "pending",
         status: "discovered" as const,
         generatedAt: now,
       },
       overallScore,
       isCleared: clearedSlugSet.has(slug),
       slug,
+      estimatedFollowers: dedupedFollowers,
+      sustainabilityScore: f.sustainabilityScore,
+      growthScore: f.growthScore,
     });
   }
 
@@ -650,7 +670,75 @@ Return as many fandoms as possible (at least 25-30). We will select the top 20 b
   candidates.sort((a, b) => b.overallScore - a.overallScore);
   const top = candidates.slice(0, 20);
 
-  // Step 3: Persist only the top 20
+  // Step 3: Verify followers for top 20 candidates (if enabled)
+  if (verify) {
+    console.log(`[AI Discovery] Verifying followers for ${top.length} candidates...`);
+    const BATCH_SIZE = 5;
+    const BATCH_DELAY_MS = 3000;
+
+    for (let i = 0; i < top.length; i += BATCH_SIZE) {
+      const batch = top.slice(i, i + BATCH_SIZE);
+
+      // Run verification for batch in parallel
+      const verificationPromises = batch.map(async (candidate) => {
+        const verified = await verifyFandomFollowers(candidate.estimatedFollowers);
+        return { slug: candidate.slug, verified };
+      });
+
+      const batchResults = await Promise.allSettled(verificationPromises);
+
+      // Update candidates with verification results
+      for (const result of batchResults) {
+        if (result.status === "fulfilled") {
+          const { slug, verified } = result.value;
+          const candidate = top.find((c) => c.slug === slug);
+          if (candidate) {
+            // Recalculate size score from verified followers
+            const totalVerifiedFollowers = verified.reduce((s, vf) => s + vf.followers, 0);
+            const newSizeScore = computeSizeScore(totalVerifiedFollowers);
+            const newOverallScore = Math.round(
+              newSizeScore * 0.3 +
+              candidate.sustainabilityScore * 0.3 +
+              candidate.growthScore * 0.4
+            );
+
+            // Update estimatedSize with verified data
+            const followerBreakdown = verified
+              .map((vf) => `${vf.platform}: ${formatFollowerCount(vf.followers)}${vf.verified ? " ✓" : ""}`)
+              .join(", ");
+            const estimatedSize = totalVerifiedFollowers > 0
+              ? `~${formatFollowerCount(totalVerifiedFollowers)} total (${followerBreakdown})`
+              : "Unknown";
+
+            // Update candidate values
+            candidate.values.verifiedFollowers = JSON.stringify(verified);
+            candidate.values.verificationStatus = computeVerificationStatus(verified);
+            candidate.values.verifiedAt = now;
+            candidate.values.sizeScore = newSizeScore;
+            candidate.values.overallScore = newOverallScore;
+            candidate.values.estimatedSize = estimatedSize;
+            candidate.overallScore = newOverallScore;
+          }
+        }
+      }
+
+      // Delay between batches (except for last batch)
+      if (i + BATCH_SIZE < top.length) {
+        await delay(BATCH_DELAY_MS);
+      }
+    }
+
+    // Re-sort by updated scores
+    top.sort((a, b) => b.overallScore - a.overallScore);
+    console.log(`[AI Discovery] Verification complete`);
+  } else {
+    // Mark all as skipped if verification is disabled
+    for (const candidate of top) {
+      candidate.values.verificationStatus = "skipped";
+    }
+  }
+
+  // Step 4: Persist only the top 20
   const results = [];
   const keptClearedSlugs = new Set(top.filter((c) => c.isCleared).map((c) => c.slug));
 
@@ -671,9 +759,10 @@ Return as many fandoms as possible (at least 25-30). We will select the top 20 b
     }
   }
 
-  // Step 4: Any cleared fandoms NOT in the top 20 stay as "cleared" (no action needed)
+  // Step 5: Any cleared fandoms NOT in the top 20 stay as "cleared" (no action needed)
 
-  console.log(`[AI Discovery] Discovered ${results.length} fandoms (top 20 by score from ${candidates.length} candidates)`);
+  const verifiedCount = top.filter((c) => c.values.verificationStatus === "complete" || c.values.verificationStatus === "partial").length;
+  console.log(`[AI Discovery] Discovered ${results.length} fandoms (top 20 by score from ${candidates.length} candidates, ${verifiedCount} verified)`);
   return results;
 }
 

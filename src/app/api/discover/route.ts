@@ -71,7 +71,11 @@ export async function GET(req: NextRequest) {
   }
 }
 
-export async function POST() {
+export async function POST(req: NextRequest) {
+  const { searchParams } = new URL(req.url);
+  const verifyParam = searchParams.get("verify");
+  const verify = verifyParam !== "false"; // Default to true
+
   const currentStatus = await getDiscoveryStatus();
   if (currentStatus === "running") {
     return NextResponse.json(
@@ -84,7 +88,7 @@ export async function POST() {
 
   after(async () => {
     try {
-      await discoverNewFandoms();
+      await discoverNewFandoms({ verify });
       await setDiscoveryStatus("idle");
     } catch (error) {
       console.error("Failed to discover fandoms:", error);
@@ -93,7 +97,7 @@ export async function POST() {
     }
   });
 
-  return NextResponse.json({ message: "Discovery started" }, { status: 202 });
+  return NextResponse.json({ message: "Discovery started", verify }, { status: 202 });
 }
 
 // Bulk actions on discovered fandoms

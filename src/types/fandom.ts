@@ -117,6 +117,17 @@ export interface FandomDiscovery {
   confidence: number; // 0-100
 }
 
+export interface VerifiedFollower {
+  platform: string;
+  handle: string;
+  followers: number;
+  verified: boolean;
+  verifiedAt?: string;
+  error?: string;
+}
+
+export type VerificationStatus = "pending" | "partial" | "complete" | "skipped";
+
 export interface DiscoveredFandom {
   id: string;
   name: string;
@@ -138,6 +149,9 @@ export interface DiscoveredFandom {
   suggestedPlatforms: string[];
   suggestedDemographics: string[];
   suggestedHandles: string[];
+  verifiedFollowers: VerifiedFollower[];
+  verificationStatus: VerificationStatus;
+  verifiedAt: string | null;
   status: "discovered" | "dismissed" | "tracked" | "cleared";
   trackedFandomId: string | null;
   generatedAt: string;
