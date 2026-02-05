@@ -30,6 +30,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { Checkbox } from "@/components/ui/checkbox";
 import { TierBadge } from "@/components/dashboard/tier-badge";
 import { PlatformIcons } from "@/components/dashboard/platform-icon";
 import type { FandomWithMetrics, ScrapeRun } from "@/types/fandom";
@@ -72,6 +73,8 @@ export default function SettingsPage() {
     fandomGroup: "",
     demographicTags: [] as string[],
     platforms: [{ platform: "tiktok", handle: "" }] as Array<{ platform: string; handle: string }>,
+    useAIResearch: true,
+    scrapeImmediately: true,
   });
 
   // Edit Fandom dialog state
@@ -149,8 +152,14 @@ export default function SettingsPage() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          ...formData,
+          name: formData.name,
+          tier: formData.tier,
+          description: formData.description,
+          fandomGroup: formData.fandomGroup,
+          demographicTags: formData.demographicTags,
           platforms: formData.platforms.filter((p) => p.handle.trim()),
+          useAIResearch: formData.useAIResearch,
+          scrapeImmediately: formData.scrapeImmediately,
         }),
       });
       if (!res.ok) {
@@ -166,8 +175,14 @@ export default function SettingsPage() {
         fandomGroup: "",
         demographicTags: [],
         platforms: [{ platform: "tiktok", handle: "" }],
+        useAIResearch: true,
+        scrapeImmediately: true,
       });
       await fetchFandoms();
+      // Start polling scrape status if scrape was triggered
+      if (formData.scrapeImmediately || formData.useAIResearch) {
+        setTimeout(fetchScrapeRuns, 3000);
+      }
     } catch {
       setAddError("Network error");
     } finally {
@@ -478,15 +493,17 @@ export default function SettingsPage() {
               <DialogHeader>
                 <DialogTitle>Add New Fandom</DialogTitle>
                 <DialogDescription>
-                  Add a fandom to track across social media platforms.
+                  {formData.useAIResearch
+                    ? "Enter the fandom name and AI will research everything else."
+                    : "Add a fandom to track across social media platforms."}
                 </DialogDescription>
               </DialogHeader>
               <div className="space-y-4">
                 <div className="space-y-2">
-                  <Label htmlFor="fandom-name">Name</Label>
+                  <Label htmlFor="fandom-name">Fandom Name *</Label>
                   <Input
                     id="fandom-name"
-                    placeholder="e.g. BINI Blooms"
+                    placeholder="e.g. BINI Blooms, SB19 A'TIN, Alamat Tribe"
                     value={formData.name}
                     onChange={(e) =>
                       setFormData((prev) => ({ ...prev, name: e.target.value }))
@@ -494,159 +511,225 @@ export default function SettingsPage() {
                   />
                 </div>
 
-                <div className="space-y-2">
-                  <Label>Tier</Label>
-                  <div className="flex gap-2">
-                    {TIER_OPTIONS.map((t) => (
-                      <Button
-                        key={t}
-                        type="button"
-                        size="sm"
-                        variant={formData.tier === t ? "default" : "outline"}
-                        onClick={() =>
-                          setFormData((prev) => ({ ...prev, tier: t }))
-                        }
-                        className="text-xs capitalize"
-                      >
-                        {t}
-                      </Button>
-                    ))}
-                  </div>
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="fandom-group">Group</Label>
-                  <Input
-                    id="fandom-group"
-                    placeholder="e.g. P-Pop, K-Pop, Reality TV"
-                    value={formData.fandomGroup}
-                    onChange={(e) =>
+                <div className="flex items-center gap-2 p-3 rounded-md bg-violet-50 dark:bg-violet-950/30 border border-violet-200 dark:border-violet-800">
+                  <Checkbox
+                    id="use-ai-research"
+                    checked={formData.useAIResearch}
+                    onCheckedChange={(checked) =>
                       setFormData((prev) => ({
                         ...prev,
-                        fandomGroup: e.target.value,
+                        useAIResearch: checked === true,
                       }))
                     }
                   />
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="fandom-desc">Description</Label>
-                  <Input
-                    id="fandom-desc"
-                    placeholder="Brief description..."
-                    value={formData.description}
-                    onChange={(e) =>
-                      setFormData((prev) => ({
-                        ...prev,
-                        description: e.target.value,
-                      }))
-                    }
-                  />
-                </div>
-
-                <div className="space-y-2">
-                  <Label>Demographics</Label>
-                  <div className="flex flex-wrap gap-2">
-                    {DEMOGRAPHIC_OPTIONS.map((tag) => (
-                      <Button
-                        key={tag}
-                        type="button"
-                        size="sm"
-                        variant={
-                          formData.demographicTags.includes(tag)
-                            ? "default"
-                            : "outline"
-                        }
-                        onClick={() => toggleDemographic(tag)}
-                        className="text-xs"
-                      >
-                        {tag === "gen_z"
-                          ? "Gen Z"
-                          : tag === "gen_y"
-                            ? "Gen Y"
-                            : tag.toUpperCase()}
-                      </Button>
-                    ))}
-                  </div>
-                </div>
-
-                <div className="space-y-2">
-                  <div className="flex items-center justify-between">
-                    <Label>Platforms</Label>
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="ghost"
-                      onClick={addPlatformRow}
-                      className="text-xs h-6"
+                  <div className="flex-1">
+                    <Label
+                      htmlFor="use-ai-research"
+                      className="text-sm font-medium cursor-pointer flex items-center gap-1.5"
                     >
-                      + Add Platform
-                    </Button>
+                      <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z"/></svg>
+                      Use AI to research fandom details
+                    </Label>
+                    <p className="text-[10px] text-muted-foreground mt-0.5">
+                      AI will find social handles, follower counts, demographics, and generate insights.
+                    </p>
                   </div>
-                  {formData.platforms.map((p, i) => (
-                    <div key={i} className="flex gap-2 items-center">
-                      <select
-                        value={p.platform}
-                        onChange={(e) =>
-                          setFormData((prev) => ({
-                            ...prev,
-                            platforms: prev.platforms.map((pp, pi) =>
-                              pi === i
-                                ? { ...pp, platform: e.target.value }
-                                : pp
-                            ),
-                          }))
-                        }
-                        className="h-9 rounded-md border border-input bg-background px-3 text-xs"
-                      >
-                        {PLATFORM_OPTIONS.map((pl) => (
-                          <option key={pl} value={pl}>
-                            {pl}
-                          </option>
+                </div>
+
+                {!formData.useAIResearch && (
+                  <>
+                    <div className="space-y-2">
+                      <Label>Tier *</Label>
+                      <div className="flex gap-2">
+                        {TIER_OPTIONS.map((t) => (
+                          <Button
+                            key={t}
+                            type="button"
+                            size="sm"
+                            variant={formData.tier === t ? "default" : "outline"}
+                            onClick={() =>
+                              setFormData((prev) => ({ ...prev, tier: t }))
+                            }
+                            className="text-xs capitalize"
+                          >
+                            {t}
+                          </Button>
                         ))}
-                      </select>
+                      </div>
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label htmlFor="fandom-group">Group</Label>
                       <Input
-                        placeholder="Handle (e.g. @username)"
-                        value={p.handle}
+                        id="fandom-group"
+                        placeholder="e.g. P-Pop, K-Pop, Reality TV"
+                        value={formData.fandomGroup}
                         onChange={(e) =>
                           setFormData((prev) => ({
                             ...prev,
-                            platforms: prev.platforms.map((pp, pi) =>
-                              pi === i
-                                ? { ...pp, handle: e.target.value }
-                                : pp
-                            ),
+                            fandomGroup: e.target.value,
                           }))
                         }
-                        className="text-xs"
                       />
-                      {formData.platforms.length > 1 && (
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label htmlFor="fandom-desc">Description</Label>
+                      <Input
+                        id="fandom-desc"
+                        placeholder="Brief description..."
+                        value={formData.description}
+                        onChange={(e) =>
+                          setFormData((prev) => ({
+                            ...prev,
+                            description: e.target.value,
+                          }))
+                        }
+                      />
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label>Demographics</Label>
+                      <div className="flex flex-wrap gap-2">
+                        {DEMOGRAPHIC_OPTIONS.map((tag) => (
+                          <Button
+                            key={tag}
+                            type="button"
+                            size="sm"
+                            variant={
+                              formData.demographicTags.includes(tag)
+                                ? "default"
+                                : "outline"
+                            }
+                            onClick={() => toggleDemographic(tag)}
+                            className="text-xs"
+                          >
+                            {tag === "gen_z"
+                              ? "Gen Z"
+                              : tag === "gen_y"
+                                ? "Gen Y"
+                                : tag.toUpperCase()}
+                          </Button>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between">
+                        <Label>Platforms *</Label>
                         <Button
                           type="button"
                           size="sm"
                           variant="ghost"
-                          onClick={() => removePlatformRow(i)}
-                          className="h-9 w-9 p-0 shrink-0"
+                          onClick={addPlatformRow}
+                          className="text-xs h-6"
                         >
-                          <svg
-                            xmlns="http://www.w3.org/2000/svg"
-                            width="14"
-                            height="14"
-                            viewBox="0 0 24 24"
-                            fill="none"
-                            stroke="currentColor"
-                            strokeWidth="2"
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                          >
-                            <path d="M18 6 6 18" />
-                            <path d="m6 6 12 12" />
-                          </svg>
+                          + Add Platform
                         </Button>
-                      )}
+                      </div>
+                      {formData.platforms.map((p, i) => (
+                        <div key={i} className="flex gap-2 items-center">
+                          <select
+                            value={p.platform}
+                            onChange={(e) =>
+                              setFormData((prev) => ({
+                                ...prev,
+                                platforms: prev.platforms.map((pp, pi) =>
+                                  pi === i
+                                    ? { ...pp, platform: e.target.value }
+                                    : pp
+                                ),
+                              }))
+                            }
+                            className="h-9 rounded-md border border-input bg-background px-3 text-xs"
+                          >
+                            {PLATFORM_OPTIONS.map((pl) => (
+                              <option key={pl} value={pl}>
+                                {pl}
+                              </option>
+                            ))}
+                          </select>
+                          <Input
+                            placeholder="Handle (e.g. @username)"
+                            value={p.handle}
+                            onChange={(e) =>
+                              setFormData((prev) => ({
+                                ...prev,
+                                platforms: prev.platforms.map((pp, pi) =>
+                                  pi === i
+                                    ? { ...pp, handle: e.target.value }
+                                    : pp
+                                ),
+                              }))
+                            }
+                            className="text-xs"
+                          />
+                          {formData.platforms.length > 1 && (
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="ghost"
+                              onClick={() => removePlatformRow(i)}
+                              className="h-9 w-9 p-0 shrink-0"
+                            >
+                              <svg
+                                xmlns="http://www.w3.org/2000/svg"
+                                width="14"
+                                height="14"
+                                viewBox="0 0 24 24"
+                                fill="none"
+                                stroke="currentColor"
+                                strokeWidth="2"
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                              >
+                                <path d="M18 6 6 18" />
+                                <path d="m6 6 12 12" />
+                              </svg>
+                            </Button>
+                          )}
+                        </div>
+                      ))}
                     </div>
-                  ))}
+                  </>
+                )}
+
+                {formData.useAIResearch && (
+                  <div className="text-xs text-muted-foreground bg-muted/50 p-3 rounded-md">
+                    <p className="font-medium mb-1">AI will automatically:</p>
+                    <ul className="list-disc list-inside space-y-0.5">
+                      <li>Search for the fandom&apos;s social media accounts</li>
+                      <li>Verify follower counts via Apify</li>
+                      <li>Determine tier and demographics</li>
+                      <li>Generate description and insights</li>
+                      <li>Start collecting engagement data</li>
+                    </ul>
+                  </div>
+                )}
+
+                <div className="flex items-center gap-2 pt-2 border-t">
+                  <Checkbox
+                    id="scrape-immediately"
+                    checked={formData.scrapeImmediately}
+                    onCheckedChange={(checked) =>
+                      setFormData((prev) => ({
+                        ...prev,
+                        scrapeImmediately: checked === true,
+                      }))
+                    }
+                  />
+                  <Label
+                    htmlFor="scrape-immediately"
+                    className="text-sm font-normal cursor-pointer"
+                  >
+                    Scrape data immediately after adding
+                  </Label>
                 </div>
+                <p className="text-[10px] text-muted-foreground -mt-2">
+                  {formData.useAIResearch
+                    ? "After AI finds handles, immediately start collecting social media data."
+                    : "When enabled, starts collecting social media data from configured platforms right away."}
+                </p>
 
                 {addError && (
                   <p className="text-sm text-red-500">{addError}</p>
@@ -661,7 +744,13 @@ export default function SettingsPage() {
                   Cancel
                 </Button>
                 <Button onClick={handleAddFandom} disabled={addLoading}>
-                  {addLoading ? "Adding..." : "Add Fandom"}
+                  {addLoading
+                    ? formData.useAIResearch
+                      ? "Researching..."
+                      : "Adding..."
+                    : formData.useAIResearch
+                      ? "Research & Add"
+                      : "Add Fandom"}
                 </Button>
               </DialogFooter>
             </DialogContent>

@@ -433,6 +433,169 @@ export interface DiscoverOptions {
   verify?: boolean;
 }
 
+export interface ResearchHints {
+  tier?: "emerging" | "trending" | "existing";
+  fandomGroup?: string;
+  description?: string;
+  platforms?: { platform: string; handle: string }[];
+}
+
+export interface ResearchedFandom {
+  name: string;
+  description: string;
+  fandomGroup: string | null;
+  tier: "emerging" | "trending" | "existing";
+  demographicTags: string[];
+  platforms: { platform: string; handle: string; followers: number }[];
+  aiKeyBehavior: string;
+  aiEngagementPotential: string;
+  aiCommunityTone: string;
+  aiRationale: string;
+}
+
+/**
+ * Research a single fandom by name using AI + web search.
+ * Returns fandom details, platforms with handles, and AI insights.
+ */
+export async function researchSingleFandom(
+  name: string,
+  hints: ResearchHints = {}
+): Promise<ResearchedFandom | null> {
+  const client = getOpenAIClient();
+  if (!client) {
+    throw new Error("OPENAI_API_KEY not configured");
+  }
+
+  const hintsContext = [
+    hints.tier ? `Suggested tier: ${hints.tier}` : null,
+    hints.fandomGroup ? `Suggested group: ${hints.fandomGroup}` : null,
+    hints.description ? `User description: ${hints.description}` : null,
+    hints.platforms?.length
+      ? `Known handles: ${hints.platforms.map((p) => `${p.platform}:@${p.handle}`).join(", ")}`
+      : null,
+  ]
+    .filter(Boolean)
+    .join("\n");
+
+  const response = await client.responses.create({
+    model: "gpt-5.2",
+    tools: [{ type: "web_search_preview" as const }],
+    instructions: `You are a Philippine social media research analyst. Research the specified fandom and find its social media presence.
+
+Use web search to:
+1. Understand what this fandom is about (fans of what? artist/show/game/team?)
+2. Find actual social media accounts and their follower counts
+3. Identify the primary platforms where this fandom is active
+4. Assess the fandom's tier (emerging, trending, or existing based on size/activity)
+
+For estimatedFollowers, search for the actual social media accounts. Include ONLY accounts you can verify via search. Report the exact handle and follower count you find.
+
+IMPORTANT: Only include ONE entry per platform. Pick the primary/official account with the most followers.
+
+For suggestedDemographics, use: "gen_y", "gen_z", "abc", "cde"
+For platforms, use: "instagram", "tiktok", "facebook", "youtube", "twitter", "reddit"`,
+    input: `Research this Philippine fandom: "${name}"
+
+${hintsContext ? `User-provided hints:\n${hintsContext}\n\n` : ""}Search the web to find:
+1. What is this fandom? Who/what do they follow?
+2. Their active social media accounts with current follower counts
+3. The community's characteristics and online behavior
+
+Return a JSON object with detailed information about this fandom.`,
+    text: {
+      format: {
+        type: "json_schema",
+        name: "researched_fandom",
+        strict: true,
+        schema: {
+          type: "object",
+          properties: {
+            name: { type: "string" },
+            description: { type: "string" },
+            fandomGroup: { type: "string" },
+            suggestedTier: { type: "string", enum: ["emerging", "trending", "existing"] },
+            estimatedFollowers: {
+              type: "array",
+              items: {
+                type: "object",
+                properties: {
+                  platform: { type: "string" },
+                  handle: { type: "string" },
+                  followers: { type: "number" },
+                },
+                required: ["platform", "handle", "followers"],
+                additionalProperties: false,
+              },
+            },
+            keyBehavior: { type: "string" },
+            engagementPotential: { type: "string" },
+            communityTone: { type: "string" },
+            rationale: { type: "string" },
+            suggestedDemographics: { type: "array", items: { type: "string" } },
+          },
+          required: [
+            "name", "description", "fandomGroup", "suggestedTier",
+            "estimatedFollowers", "keyBehavior", "engagementPotential",
+            "communityTone", "rationale", "suggestedDemographics",
+          ],
+          additionalProperties: false,
+        },
+      },
+    },
+  });
+
+  const parsed = JSON.parse(response.output_text) as {
+    name: string;
+    description: string;
+    fandomGroup: string;
+    suggestedTier: "emerging" | "trending" | "existing";
+    estimatedFollowers: { platform: string; handle: string; followers: number }[];
+    keyBehavior: string;
+    engagementPotential: string;
+    communityTone: string;
+    rationale: string;
+    suggestedDemographics: string[];
+  };
+
+  // Deduplicate followers by platform
+  const dedupedFollowers = deduplicateFollowers(parsed.estimatedFollowers);
+
+  // Verify followers via Apify if enabled
+  let finalPlatforms = dedupedFollowers;
+  if (ENABLE_VERIFICATION && dedupedFollowers.length > 0) {
+    console.log(`[AI Research] Verifying followers for ${name}...`);
+    const verified = await verifyFandomFollowers(dedupedFollowers);
+    finalPlatforms = verified.map((vf) => ({
+      platform: vf.platform,
+      handle: vf.handle,
+      followers: vf.followers,
+    }));
+    console.log(`[AI Research] Verification complete for ${name}`);
+  }
+
+  // Use hints for tier if provided, otherwise use AI suggestion
+  const tier = hints.tier || parsed.suggestedTier;
+
+  // Filter demographics to valid values
+  const validDemographics = ["gen_y", "gen_z", "abc", "cde"];
+  const demographicTags = parsed.suggestedDemographics.filter((d) =>
+    validDemographics.includes(d)
+  );
+
+  return {
+    name: parsed.name || name,
+    description: parsed.description,
+    fandomGroup: parsed.fandomGroup || hints.fandomGroup || null,
+    tier,
+    demographicTags,
+    platforms: finalPlatforms,
+    aiKeyBehavior: parsed.keyBehavior,
+    aiEngagementPotential: parsed.engagementPotential,
+    aiCommunityTone: parsed.communityTone,
+    aiRationale: parsed.rationale,
+  };
+}
+
 export async function discoverNewFandoms(options: DiscoverOptions = {}) {
   const { verify = ENABLE_VERIFICATION } = options;
 
