@@ -71,6 +71,43 @@ export default function FandomDetailPage() {
   const [error, setError] = useState(false);
   const [handleStatus, setHandleStatus] = useState<Record<string, { valid: boolean; error?: string; displayName?: string; followers?: number }>>({});
   const [verifying, setVerifying] = useState(false);
+  const [editingPlatform, setEditingPlatform] = useState<string | null>(null);
+  const [editValue, setEditValue] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  const saveHandle = async (platform: string) => {
+    if (!fandom || !editValue.trim()) return;
+    setSaving(true);
+    try {
+      const res = await fetch(`/api/fandoms/${fandom.slug}/`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ platform, handle: editValue.trim() }),
+      });
+      if (res.ok) {
+        // Update local state
+        setFandom((prev: any) => {
+          if (!prev) return prev;
+          return {
+            ...prev,
+            platforms: prev.platforms.map((p: any) =>
+              p.platform === platform ? { ...p, handle: editValue.trim().replace("@", "") } : p
+            ),
+          };
+        });
+        setEditingPlatform(null);
+        // Clear verification status for this platform
+        setHandleStatus((prev) => {
+          const next = { ...prev };
+          delete next[platform];
+          return next;
+        });
+      }
+    } catch (e) {
+      console.error("Save failed:", e);
+    }
+    setSaving(false);
+  };
 
   const verifyHandles = async () => {
     if (!fandom) return;
@@ -249,11 +286,45 @@ export default function FandomDetailPage() {
                   const status = handleStatus[p.platform];
                   return (
                     <div key={p.id} className="flex items-center justify-between py-2 px-3 rounded-md border text-sm">
-                      <div className="flex items-center gap-3">
-                        <span className="font-medium capitalize w-20">{p.platform}</span>
-                        <span className="text-muted-foreground font-mono text-xs">@{p.handle}</span>
+                      <div className="flex items-center gap-3 flex-1 min-w-0">
+                        <span className="font-medium capitalize w-20 shrink-0">{p.platform}</span>
+                        {editingPlatform === p.platform ? (
+                          <div className="flex items-center gap-2 flex-1">
+                            <input
+                              type="text"
+                              value={editValue}
+                              onChange={(e) => setEditValue(e.target.value)}
+                              onKeyDown={(e) => { if (e.key === "Enter") saveHandle(p.platform); if (e.key === "Escape") setEditingPlatform(null); }}
+                              className="flex-1 h-7 px-2 text-xs font-mono border rounded-md bg-background focus:outline-none focus:ring-1 focus:ring-ring"
+                              autoFocus
+                              placeholder="Enter handle..."
+                            />
+                            <button
+                              onClick={() => saveHandle(p.platform)}
+                              disabled={saving}
+                              className="h-7 px-2 text-xs font-medium rounded-md bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+                            >
+                              {saving ? "..." : "Save"}
+                            </button>
+                            <button
+                              onClick={() => setEditingPlatform(null)}
+                              className="h-7 px-2 text-xs rounded-md border hover:bg-accent"
+                            >
+                              ✕
+                            </button>
+                          </div>
+                        ) : (
+                          <button
+                            onClick={() => { setEditingPlatform(p.platform); setEditValue(p.handle); }}
+                            className="text-muted-foreground font-mono text-xs hover:text-foreground hover:underline transition-colors cursor-pointer truncate"
+                            title="Click to edit handle"
+                          >
+                            @{p.handle}
+                          </button>
+                        )}
                       </div>
-                      <div className="flex items-center gap-2">
+                      {editingPlatform !== p.platform && (
+                      <div className="flex items-center gap-2 shrink-0 ml-2">
                         {status ? (
                           status.valid ? (
                             <span className="flex items-center gap-1 text-emerald-600 text-xs">
@@ -262,15 +333,20 @@ export default function FandomDetailPage() {
                               {status.followers ? ` · ${status.followers >= 1000000 ? (status.followers / 1000000).toFixed(1) + "M" : status.followers >= 1000 ? (status.followers / 1000).toFixed(1) + "K" : status.followers}` : ""}
                             </span>
                           ) : (
-                            <span className="flex items-center gap-1 text-red-500 text-xs">
+                            <span
+                              className="flex items-center gap-1 text-red-500 text-xs cursor-pointer hover:underline"
+                              onClick={() => { setEditingPlatform(p.platform); setEditValue(p.handle); }}
+                              title="Click to fix this handle"
+                            >
                               <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
-                              {status.error || "Invalid"}
+                              {status.error || "Invalid"} — click to fix
                             </span>
                           )
                         ) : (
                           <span className="text-xs text-muted-foreground">Not verified</span>
                         )}
                       </div>
+                      )}
                     </div>
                   );
                 })}

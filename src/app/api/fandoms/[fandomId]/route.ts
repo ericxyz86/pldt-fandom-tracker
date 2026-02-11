@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { fandoms, fandomPlatforms } from "@/lib/db/schema";
-import { eq } from "drizzle-orm";
+import { eq, and } from "drizzle-orm";
 import { getFandomBySlug } from "@/lib/services/fandom.service";
 
 export const dynamic = "force-dynamic";
@@ -92,5 +92,56 @@ export async function PUT(
       { error: "Failed to update fandom" },
       { status: 500 }
     );
+  }
+}
+
+
+export async function PATCH(
+  req: Request,
+  { params }: { params: Promise<{ fandomId: string }> }
+) {
+  const { fandomId } = await params;
+
+  try {
+    const body = await req.json();
+    const { platform, handle } = body;
+
+    if (!platform || !handle) {
+      return NextResponse.json({ error: "platform and handle required" }, { status: 400 });
+    }
+
+    // Look up fandom by slug
+    const rows = await db
+      .select({ id: fandoms.id })
+      .from(fandoms)
+      .where(eq(fandoms.slug, fandomId))
+      .limit(1);
+
+    if (rows.length === 0) {
+      return NextResponse.json({ error: "Fandom not found" }, { status: 404 });
+    }
+
+    const id = rows[0].id;
+
+    // Update the specific platform handle
+    const result = await db
+      .update(fandomPlatforms)
+      .set({ handle: handle.replace("@", "") })
+      .where(
+        and(
+          eq(fandomPlatforms.fandomId, id),
+          eq(fandomPlatforms.platform, platform)
+        )
+      )
+      .returning();
+
+    if (result.length === 0) {
+      return NextResponse.json({ error: "Platform not found for this fandom" }, { status: 404 });
+    }
+
+    return NextResponse.json({ success: true, updated: result[0] });
+  } catch (error) {
+    console.error("Failed to update handle:", error);
+    return NextResponse.json({ error: "Failed to update handle" }, { status: 500 });
   }
 }

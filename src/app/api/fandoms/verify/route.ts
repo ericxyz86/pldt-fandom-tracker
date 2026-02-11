@@ -142,39 +142,9 @@ async function checkYouTube(handle: string): Promise<HandleCheck> {
 
 async function checkTwitter(handle: string): Promise<HandleCheck> {
   const clean = handle.replace("@", "");
-  // Twitter aggressively blocks server-side checks — try multiple approaches
-  try {
-    // Method 1: Syndication API
-    const res = await fetch(`https://syndication.twitter.com/srv/timeline-profile/screen-name/${clean}`, {
-      headers: {
-        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
-      },
-      redirect: "follow",
-      signal: AbortSignal.timeout(10000),
-    });
-    if (res.ok) {
-      const html = await res.text();
-      if (html.includes("doesn't exist") || html.includes("This account doesn")) {
-        return { platform: "twitter", handle: clean, valid: false, error: "Account not found" };
-      }
-      return { platform: "twitter", handle: clean, valid: true };
-    }
-    // Method 2: HEAD request to x.com
-    const res2 = await fetch(`https://x.com/${clean}`, {
-      method: "HEAD",
-      headers: { "User-Agent": "Twitterbot/1.0" },
-      redirect: "manual",
-      signal: AbortSignal.timeout(5000),
-    });
-    if (res2.status === 404) {
-      return { platform: "twitter", handle: clean, valid: false, error: "Account not found" };
-    }
-    // Any other response (302, 200, 403, etc.) means the account likely exists
-    return { platform: "twitter", handle: clean, valid: true };
-  } catch (e) {
-    // Network errors on Twitter are common from datacenter IPs — assume valid
-    return { platform: "twitter", handle: clean, valid: true, error: "Could not verify (blocked by X)" };
-  }
+  // X/Twitter aggressively blocks all server-side verification from datacenter IPs.
+  // We cannot reliably distinguish "account exists" from "blocked" — always assume valid.
+  return { platform: "twitter", handle: clean, valid: true, error: "X blocks server verification" };
 }
 
 async function checkFacebook(handle: string): Promise<HandleCheck> {
