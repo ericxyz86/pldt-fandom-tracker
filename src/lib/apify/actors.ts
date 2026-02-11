@@ -42,13 +42,12 @@ export const actorConfigs: Record<string, ActorConfig> = {
     }),
   },
   youtube: {
-    actorId: "streamers/youtube-scraper",
+    actorId: "menoob/pldt-youtube-scraper",
     platform: "youtube",
-    description: "Scrapes YouTube channels, videos, and engagement",
+    description: "Custom YouTube scraper via Data API v3 — channels, videos, engagement",
     buildInput: ({ handle, limit = 50 }) => ({
-      startUrls: [{ url: `https://www.youtube.com/@${handle}` }],
-      maxResults: limit,
-      type: "video",
+      channelUrls: [`https://www.youtube.com/@${handle}`],
+      maxVideos: limit,
     }),
   },
   twitter: {
@@ -62,13 +61,13 @@ export const actorConfigs: Record<string, ActorConfig> = {
     }),
   },
   reddit: {
-    actorId: "trudax/reddit-scraper",
+    actorId: "menoob/pldt-reddit-scraper",
     platform: "reddit",
-    description: "Scrapes Reddit subreddits and posts",
-    buildInput: ({ handle, limit = 100 }) => ({
-      startUrls: [{ url: `https://www.reddit.com/${handle}` }],
-      maxItems: limit,
-      sort: "hot",
+    description: "Custom Reddit scraper via public JSON API — search and subreddit posts",
+    buildInput: ({ handle, keyword, limit = 100 }) => ({
+      searchQuery: keyword || handle,
+      subreddits: [],
+      maxResults: limit,
     }),
   },
   googleTrends: {
