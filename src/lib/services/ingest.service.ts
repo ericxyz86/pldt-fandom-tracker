@@ -75,7 +75,11 @@ export async function ingestDataset(params: {
         comments: item.comments,
         shares: item.shares,
         views: item.views,
-        publishedAt: item.publishedAt ? new Date(item.publishedAt) : null,
+        publishedAt: (() => {
+          if (!item.publishedAt) return null;
+          const d = new Date(item.publishedAt);
+          return isNaN(d.getTime()) ? null : d;
+        })(),
         hashtags: item.hashtags,
       });
       totalInserted++;

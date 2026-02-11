@@ -125,7 +125,7 @@ export function normalizeContent(
         comments: item.commentsCount || 0,
         shares: 0,
         views: item.viewCount || item.views || 0,
-        publishedAt: item.date || item.uploadDate || null,
+        publishedAt: safeParseDate(item.date || item.uploadDate || null),
         hashtags: extractHashtags(item.title || ""),
       }));
     case "facebook":
@@ -431,6 +431,47 @@ function normalizeRedditMetrics(rawData: any[]): NormalizedMetric {
       : 0,
     avgShares: 0,
   };
+}
+
+
+function safeParseDate(dateStr: string | null | undefined): string | null {
+  if (!dateStr) return null;
+  
+  // Already ISO format
+  if (/^\d{4}-\d{2}-\d{2}/.test(dateStr)) {
+    const d = new Date(dateStr);
+    return isNaN(d.getTime()) ? null : d.toISOString();
+  }
+  
+  // Strip "Premiered " prefix
+  const cleaned = dateStr.replace(/^Premiered\s+/i, '').trim();
+  
+  // Try "Feb 5, 2026" or "February 5, 2026" format
+  const directParse = new Date(cleaned);
+  if (!isNaN(directParse.getTime()) && directParse.getFullYear() > 1990) {
+    return directParse.toISOString();
+  }
+  
+  // Relative dates: "2 days ago", "3 weeks ago", "1 month ago", "1 year ago"
+  const relMatch = cleaned.match(/(\d+)\s+(second|minute|hour|day|week|month|year)s?\s+ago/i);
+  if (relMatch) {
+    const num = parseInt(relMatch[1]);
+    const unit = relMatch[2].toLowerCase();
+    const now = new Date();
+    switch (unit) {
+      case 'second': now.setSeconds(now.getSeconds() - num); break;
+      case 'minute': now.setMinutes(now.getMinutes() - num); break;
+      case 'hour': now.setHours(now.getHours() - num); break;
+      case 'day': now.setDate(now.getDate() - num); break;
+      case 'week': now.setDate(now.getDate() - num * 7); break;
+      case 'month': now.setMonth(now.getMonth() - num); break;
+      case 'year': now.setFullYear(now.getFullYear() - num); break;
+    }
+    return now.toISOString();
+  }
+  
+  // "Streamed X days/hours ago" or just text we can't parse
+  return null;
 }
 
 function extractHashtags(text: string): string[] {
