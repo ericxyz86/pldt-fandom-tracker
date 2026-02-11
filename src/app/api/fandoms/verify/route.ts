@@ -32,8 +32,11 @@ async function checkInstagram(handle: string): Promise<HandleCheck> {
     if (res.status === 404) {
       return { platform: "instagram", handle: clean, valid: false, error: "Account not found" };
     }
+    if (res.status === 429) {
+      return { platform: "instagram", handle: clean, valid: true, error: "Rate limited (handle likely valid)" };
+    }
     if (!res.ok) {
-      return { platform: "instagram", handle: clean, valid: false, error: `HTTP ${res.status}` };
+      return { platform: "instagram", handle: clean, valid: true, error: `HTTP ${res.status} (unconfirmed)` };
     }
     const data = await res.json();
     const user = data?.data?.user;
@@ -139,37 +142,38 @@ async function checkYouTube(handle: string): Promise<HandleCheck> {
 
 async function checkTwitter(handle: string): Promise<HandleCheck> {
   const clean = handle.replace("@", "");
-  // Lightweight check via nitter or syndication
+  // Twitter aggressively blocks server-side checks — try multiple approaches
   try {
+    // Method 1: Syndication API
     const res = await fetch(`https://syndication.twitter.com/srv/timeline-profile/screen-name/${clean}`, {
       headers: {
-        "User-Agent":
-          "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
       },
       redirect: "follow",
       signal: AbortSignal.timeout(10000),
     });
-    if (res.status === 404 || res.status === 403) {
-      // Try another check
-      const res2 = await fetch(`https://x.com/${clean}`, {
-        headers: { "User-Agent": "Twitterbot/1.0" },
-        redirect: "manual",
-        signal: AbortSignal.timeout(5000),
-      });
-      // 302 to login = account exists, 404 = doesn't
-      if (res2.status === 404) {
+    if (res.ok) {
+      const html = await res.text();
+      if (html.includes("doesn't exist") || html.includes("This account doesn")) {
         return { platform: "twitter", handle: clean, valid: false, error: "Account not found" };
       }
       return { platform: "twitter", handle: clean, valid: true };
     }
-    const html = await res.text();
-    if (html.includes("doesn't exist") || html.includes("This account doesn")) {
+    // Method 2: HEAD request to x.com
+    const res2 = await fetch(`https://x.com/${clean}`, {
+      method: "HEAD",
+      headers: { "User-Agent": "Twitterbot/1.0" },
+      redirect: "manual",
+      signal: AbortSignal.timeout(5000),
+    });
+    if (res2.status === 404) {
       return { platform: "twitter", handle: clean, valid: false, error: "Account not found" };
     }
+    // Any other response (302, 200, 403, etc.) means the account likely exists
     return { platform: "twitter", handle: clean, valid: true };
   } catch (e) {
-    // Network error doesn't mean invalid — could be rate limited
-    return { platform: "twitter", handle: clean, valid: true, error: "Could not verify (network)" };
+    // Network errors on Twitter are common from datacenter IPs — assume valid
+    return { platform: "twitter", handle: clean, valid: true, error: "Could not verify (blocked by X)" };
   }
 }
 
