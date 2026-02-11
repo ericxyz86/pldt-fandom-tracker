@@ -10,6 +10,7 @@ import {
 } from "@/components/ui/chart";
 import { Line, LineChart, CartesianGrid, XAxis, YAxis } from "recharts";
 import { AIInsightCard } from "@/components/dashboard/ai-insight-card";
+import { TrendsUpload } from "@/components/dashboard/trends-upload";
 
 const COLORS = [
   "#2563eb",
@@ -39,7 +40,8 @@ export default function TrendsPage() {
   const [trends, setTrends] = useState<TrendItem[]>([]);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
+  const loadTrends = () => {
+    setLoading(true);
     fetch("/api/trends")
       .then((r) => r.json())
       .then((data) => {
@@ -47,6 +49,10 @@ export default function TrendsPage() {
         setLoading(false);
       })
       .catch(() => setLoading(false));
+  };
+
+  useEffect(() => {
+    loadTrends();
   }, []);
 
   const fandomSlugs = useMemo(() => {
@@ -101,11 +107,12 @@ export default function TrendsPage() {
         ]}
       />
 
+      <TrendsUpload onUploadComplete={loadTrends} />
+
       {trends.length === 0 ? (
         <Card>
           <CardContent className="py-12 text-center text-muted-foreground">
-            No Google Trends data available yet. Run a Google Trends scrape from
-            the Settings page to populate this chart.
+            No Google Trends data available yet. Upload a CSV from Google Trends or run a scrape from Settings.
           </CardContent>
         </Card>
       ) : (

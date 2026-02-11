@@ -76,7 +76,7 @@ export const actorConfigs: Record<string, ActorConfig> = {
   googleTrends: {
     actorId: "menoob/pldt-google-trends-scraper",
     platform: "instagram",
-    description: "Scrapes Google Trends interest data (currently blocked)",
+    description: "Scrapes Google Trends interest data for tracked fandoms",
     buildInput: ({ keyword }) => ({
       searchTerms: keyword ? [keyword] : [],
       geo: "PH",

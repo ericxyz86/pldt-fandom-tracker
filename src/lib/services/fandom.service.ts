@@ -212,6 +212,8 @@ export async function getFandomBySlug(slug: string, dateFrom?: string, dateTo?: 
       handle: p.handle,
       followers: p.followers,
       url: p.url,
+      verified: p.verified || null,
+      verifiedAt: p.verifiedAt || null,
     })),
     totalFollowers,
     avgEngagementRate: parseFloat(engRate.toFixed(2)),

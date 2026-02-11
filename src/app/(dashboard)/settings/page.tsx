@@ -56,6 +56,8 @@ export default function SettingsPage() {
   const [status, setStatus] = useState<PipelineStatus | null>(null);
   const [loading, setLoading] = useState(true);
   const [scrapingSlug, setScrapingSlug] = useState<string | null>(null);
+  const [trendsScraping, setTrendsScraping] = useState(false);
+  const [trendsResult, setTrendsResult] = useState<string | null>(null);
   const [scrapeResult, setScrapeResult] = useState<{
     slug: string;
     success: boolean;
@@ -468,6 +470,35 @@ export default function SettingsPage() {
             )}
             {globalScraping ? "Scraping..." : "Scrape All Fandoms"}
           </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={trendsScraping}
+            onClick={async () => {
+              setTrendsScraping(true);
+              setTrendsResult(null);
+              try {
+                const res = await fetch("/api/scrape/trends", { method: "POST" });
+                const data = await res.json();
+                if (data.error) {
+                  setTrendsResult("Error: " + data.error);
+                } else {
+                  setTrendsResult(data.succeeded + "/" + data.total + " fandoms scraped");
+                }
+              } catch {
+                setTrendsResult("Network error");
+              }
+              setTrendsScraping(false);
+            }}
+          >
+            {trendsScraping ? (
+              <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="mr-1 animate-spin"><path d="M21 12a9 9 0 1 1-6.219-8.56" /></svg>
+            ) : (
+              <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="mr-1"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12" /></svg>
+            )}
+            {trendsScraping ? "Scraping Trends..." : "Scrape Google Trends"}
+          </Button>
+          {trendsResult && <span className="text-xs text-muted-foreground">{trendsResult}</span>}
           <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
             <DialogTrigger asChild>
               <Button size="sm" variant="outline">

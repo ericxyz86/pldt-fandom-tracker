@@ -51,7 +51,7 @@ interface FandomDetail {
   imageUrl: string | null;
   fandomGroup: string | null;
   demographicTags: string[];
-  platforms: { id: string; fandomId: string; platform: Platform; handle: string; followers: number; url: string | null }[];
+  platforms: { id: string; fandomId: string; platform: Platform; handle: string; followers: number; url: string | null; verified: string | null; verifiedAt: string | null }[];
   totalFollowers: number;
   avgEngagementRate: number;
   weeklyGrowthRate: number;
@@ -74,6 +74,8 @@ export default function FandomDetailPage() {
   const [editingPlatform, setEditingPlatform] = useState<string | null>(null);
   const [editValue, setEditValue] = useState("");
   const [saving, setSaving] = useState(false);
+  const [editingFollowers, setEditingFollowers] = useState<string | null>(null);
+  const [followersValue, setFollowersValue] = useState("");
 
   const saveHandle = async (platform: string) => {
     if (!fandom || !editValue.trim()) return;
@@ -96,7 +98,7 @@ export default function FandomDetailPage() {
           };
         });
         setEditingPlatform(null);
-        // Clear verification status for this platform
+        // Clear verification status for this platform (now invalid until re-verified)
         setHandleStatus((prev) => {
           const next = { ...prev };
           delete next[platform];
@@ -105,6 +107,33 @@ export default function FandomDetailPage() {
       }
     } catch (e) {
       console.error("Save failed:", e);
+    }
+    setSaving(false);
+  };
+
+  const saveFollowers = async (platform: string) => {
+    if (!fandom) return;
+    setSaving(true);
+    try {
+      const res = await fetch(`/api/fandoms/${fandom.slug}/`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ platform, followers: followersValue }),
+      });
+      if (res.ok) {
+        setFandom((prev: any) => {
+          if (!prev) return prev;
+          return {
+            ...prev,
+            platforms: prev.platforms.map((p: any) =>
+              p.platform === platform ? { ...p, followers: parseInt(followersValue) || 0 } : p
+            ),
+          };
+        });
+        setEditingFollowers(null);
+      }
+    } catch (e) {
+      console.error("Save followers failed:", e);
     }
     setSaving(false);
   };
@@ -143,6 +172,16 @@ export default function FandomDetailPage() {
       })
       .then((data) => {
         setFandom(data);
+        // Initialize verification status from DB
+        if (data.platforms) {
+          const statusMap: Record<string, { valid: boolean; error?: string; displayName?: string; followers?: number }> = {};
+          for (const p of data.platforms) {
+            if (p.verified) {
+              statusMap[p.platform] = { valid: p.verified === 'valid' };
+            }
+          }
+          setHandleStatus(statusMap);
+        }
         setLoading(false);
       })
       .catch(() => {
@@ -325,6 +364,31 @@ export default function FandomDetailPage() {
                       </div>
                       {editingPlatform !== p.platform && (
                       <div className="flex items-center gap-2 shrink-0 ml-2">
+                        {/* Editable follower count */}
+                        {editingFollowers === p.platform ? (
+                          <div className="flex items-center gap-1">
+                            <input
+                              type="number"
+                              value={followersValue}
+                              onChange={(e) => setFollowersValue(e.target.value)}
+                              onKeyDown={(e) => { if (e.key === "Enter") saveFollowers(p.platform); if (e.key === "Escape") setEditingFollowers(null); }}
+                              className="w-24 h-6 px-1 text-xs font-mono border rounded bg-background focus:outline-none focus:ring-1 focus:ring-ring"
+                              autoFocus
+                              placeholder="Followers"
+                            />
+                            <button onClick={() => saveFollowers(p.platform)} disabled={saving} className="h-6 px-1.5 text-xs rounded bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50">{saving ? "..." : "✓"}</button>
+                            <button onClick={() => setEditingFollowers(null)} className="h-6 px-1.5 text-xs rounded border hover:bg-accent">✕</button>
+                          </div>
+                        ) : (
+                          <button
+                            onClick={() => { setEditingFollowers(p.platform); setFollowersValue(String(p.followers)); }}
+                            className="text-xs text-muted-foreground hover:text-foreground hover:underline cursor-pointer tabular-nums"
+                            title="Click to edit followers"
+                          >
+                            {p.followers >= 1000000 ? (p.followers / 1000000).toFixed(1) + "M" : p.followers >= 1000 ? (p.followers / 1000).toFixed(1) + "K" : p.followers}
+                          </button>
+                        )}
+                        <span className="text-muted-foreground/40">|</span>
                         {status ? (
                           status.valid ? (
                             <span className="flex items-center gap-1 text-emerald-600 text-xs">

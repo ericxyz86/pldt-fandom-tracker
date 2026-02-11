@@ -67,6 +67,8 @@ export const fandomPlatforms = pgTable("fandom_platforms", {
   handle: text("handle").notNull(),
   followers: integer("followers").default(0).notNull(),
   url: text("url"),
+  verified: text("verified"),
+  verifiedAt: timestamp("verified_at"),
 });
 
 export const metricSnapshots = pgTable("metric_snapshots", {

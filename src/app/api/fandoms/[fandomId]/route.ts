@@ -104,10 +104,10 @@ export async function PATCH(
 
   try {
     const body = await req.json();
-    const { platform, handle } = body;
+    const { platform, handle, followers } = body;
 
-    if (!platform || !handle) {
-      return NextResponse.json({ error: "platform and handle required" }, { status: 400 });
+    if (!platform) {
+      return NextResponse.json({ error: "platform required" }, { status: 400 });
     }
 
     // Look up fandom by slug
@@ -123,10 +123,22 @@ export async function PATCH(
 
     const id = rows[0].id;
 
-    // Update the specific platform handle
+    // Update the specific platform (handle and/or followers)
+    const updateData: Record<string, unknown> = {};
+    if (handle !== undefined) {
+      updateData.handle = handle.replace("@", "");
+      updateData.verified = null;
+      updateData.verifiedAt = null;
+    }
+    if (followers !== undefined) {
+      updateData.followers = parseInt(followers) || 0;
+    }
+    if (Object.keys(updateData).length === 0) {
+      return NextResponse.json({ error: "Nothing to update" }, { status: 400 });
+    }
     const result = await db
       .update(fandomPlatforms)
-      .set({ handle: handle.replace("@", "") })
+      .set(updateData)
       .where(
         and(
           eq(fandomPlatforms.fandomId, id),
