@@ -1171,11 +1171,11 @@ export default function SettingsPage() {
                 <div className="flex justify-between">
                   <span>All Data (Cron)</span>
                   <Badge variant="outline" className="text-[10px]">
-                    Every 12 hours
+                    1st of every month
                   </Badge>
                 </div>
                 <p className="text-[10px] pt-1">
-                  Automated cron scrapes all fandoms and platforms every 12 hours.
+                  Data refresh runs on the 1st of every month to manage Apify costs.
                   Use the manual buttons above for immediate refreshes.
                 </p>
               </div>
