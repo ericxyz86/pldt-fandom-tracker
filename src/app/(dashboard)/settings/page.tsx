@@ -1091,7 +1091,21 @@ export default function SettingsPage() {
         </CardContent>
       </Card>
 
-      {scrapeRuns.length > 0 && (
+      {scrapeRuns.length > 0 && (() => {
+        const succeeded = scrapeRuns.filter(r => r.status === "succeeded").length;
+        const running = scrapeRuns.filter(r => r.status === "running").length;
+        const failed = scrapeRuns.filter(r => r.status === "failed").length;
+        const totalItems = scrapeRuns.reduce((sum, r) => sum + (r.itemsCount || 0), 0);
+        const lastRun = scrapeRuns[0];
+        const lastTime = lastRun?.startedAt ? new Date(lastRun.startedAt) : null;
+        const timeAgo = lastTime ? (() => {
+          const diff = Math.round((Date.now() - lastTime.getTime()) / 1000);
+          if (diff < 60) return `${diff}s ago`;
+          if (diff < 3600) return `${Math.round(diff / 60)}m ago`;
+          return `${Math.round(diff / 3600)}h ago`;
+        })() : null;
+
+        return (
         <Card>
           <CardHeader className="flex flex-row items-center justify-between">
             <CardTitle className="text-sm">Scrape Activity</CardTitle>
@@ -1105,68 +1119,111 @@ export default function SettingsPage() {
               Clear All
             </Button>
           </CardHeader>
-          <CardContent>
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Fandom</TableHead>
-                  <TableHead>Platform</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead className="text-right">Items</TableHead>
-                  <TableHead className="text-right">Duration</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {scrapeRuns.slice(0, 50).map((run) => {
-                  const duration =
-                    run.startedAt && run.finishedAt
-                      ? Math.round(
-                          (new Date(run.finishedAt).getTime() -
-                            new Date(run.startedAt).getTime()) /
-                            1000
-                        )
-                      : null;
-                  return (
-                    <TableRow key={run.id}>
-                      <TableCell className="text-sm">
-                        {run.fandomName || "—"}
-                      </TableCell>
-                      <TableCell className="text-xs capitalize">
-                        {run.platform || "—"}
-                      </TableCell>
-                      <TableCell>
-                        <Badge
-                          variant="outline"
-                          className={`text-[10px] ${
-                            run.status === "succeeded"
-                              ? "text-emerald-600 border-emerald-200"
-                              : run.status === "running"
-                                ? "text-amber-600 border-amber-200"
-                                : run.status === "failed"
-                                  ? "text-red-500 border-red-200"
-                                  : "text-muted-foreground"
-                          }`}
-                        >
-                          {run.status === "running" && (
-                            <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="mr-1 animate-spin"><path d="M21 12a9 9 0 1 1-6.219-8.56" /></svg>
-                          )}
-                          {run.status}
-                        </Badge>
-                      </TableCell>
-                      <TableCell className="text-right text-xs">
-                        {run.itemsCount}
-                      </TableCell>
-                      <TableCell className="text-right text-xs text-muted-foreground">
-                        {duration !== null ? `${duration}s` : "—"}
-                      </TableCell>
+          <CardContent className="space-y-4">
+            {/* Summary bar */}
+            <div className="flex items-center gap-4 text-sm">
+              {succeeded > 0 && (
+                <span className="flex items-center gap-1.5 text-emerald-600">
+                  <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+                  <span className="font-medium">{succeeded}</span> succeeded
+                </span>
+              )}
+              {running > 0 && (
+                <span className="flex items-center gap-1.5 text-amber-600">
+                  <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="animate-spin"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>
+                  <span className="font-medium">{running}</span> running
+                </span>
+              )}
+              {failed > 0 && (
+                <span className="flex items-center gap-1.5 text-red-500">
+                  <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
+                  <span className="font-medium">{failed}</span> failed
+                </span>
+              )}
+              <span className="text-muted-foreground">·</span>
+              <span className="text-muted-foreground">{totalItems} items collected</span>
+            </div>
+
+            {/* Last run info */}
+            {lastRun && (
+              <p className="text-xs text-muted-foreground">
+                Last: <span className="font-medium text-foreground">{lastRun.fandomName || "Unknown"}</span>
+                {" · "}
+                <span className="capitalize">{lastRun.platform}</span>
+                {timeAgo && ` · ${timeAgo}`}
+              </p>
+            )}
+
+            {/* Collapsible details */}
+            <details className="group">
+              <summary className="text-xs text-muted-foreground cursor-pointer hover:text-foreground transition-colors select-none">
+                Show details ({scrapeRuns.length} runs)
+              </summary>
+              <div className="mt-3">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Fandom</TableHead>
+                      <TableHead>Platform</TableHead>
+                      <TableHead>Status</TableHead>
+                      <TableHead className="text-right">Items</TableHead>
+                      <TableHead className="text-right">Duration</TableHead>
                     </TableRow>
-                  );
-                })}
-              </TableBody>
-            </Table>
+                  </TableHeader>
+                  <TableBody>
+                    {scrapeRuns.slice(0, 50).map((run) => {
+                      const duration =
+                        run.startedAt && run.finishedAt
+                          ? Math.round(
+                              (new Date(run.finishedAt).getTime() -
+                                new Date(run.startedAt).getTime()) /
+                                1000
+                            )
+                          : null;
+                      return (
+                        <TableRow key={run.id}>
+                          <TableCell className="text-sm">
+                            {run.fandomName || "—"}
+                          </TableCell>
+                          <TableCell className="text-xs capitalize">
+                            {run.platform || "—"}
+                          </TableCell>
+                          <TableCell>
+                            <Badge
+                              variant="outline"
+                              className={`text-[10px] ${
+                                run.status === "succeeded"
+                                  ? "text-emerald-600 border-emerald-200"
+                                  : run.status === "running"
+                                    ? "text-amber-600 border-amber-200"
+                                    : run.status === "failed"
+                                      ? "text-red-500 border-red-200"
+                                      : "text-muted-foreground"
+                              }`}
+                            >
+                              {run.status === "running" && (
+                                <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="mr-1 animate-spin"><path d="M21 12a9 9 0 1 1-6.219-8.56" /></svg>
+                              )}
+                              {run.status}
+                            </Badge>
+                          </TableCell>
+                          <TableCell className="text-right text-xs">
+                            {run.itemsCount}
+                          </TableCell>
+                          <TableCell className="text-right text-xs text-muted-foreground">
+                            {duration !== null ? `${duration}s` : "—"}
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
+                  </TableBody>
+                </Table>
+              </div>
+            </details>
           </CardContent>
         </Card>
-      )}
+        );
+      })()}
 
       <Card>
         <CardHeader>
