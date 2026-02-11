@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { scrapeRuns, fandoms } from "@/lib/db/schema";
-import { eq, desc } from "drizzle-orm";
+import { eq, desc, and, lt, sql } from "drizzle-orm";
 
 export const dynamic = "force-dynamic";
 
@@ -10,6 +10,18 @@ export async function GET(req: NextRequest) {
   const fandomId = searchParams.get("fandomId");
 
   try {
+    // Auto-cleanup: mark stale "running" records (>10min) as "timed_out"
+    const tenMinAgo = new Date(Date.now() - 10 * 60 * 1000);
+    await db
+      .update(scrapeRuns)
+      .set({ status: "failed", finishedAt: new Date() })
+      .where(
+        and(
+          eq(scrapeRuns.status, "running"),
+          lt(scrapeRuns.startedAt, tenMinAgo)
+        )
+      );
+
     const query = db
       .select({
         id: scrapeRuns.id,

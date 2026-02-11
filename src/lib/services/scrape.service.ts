@@ -87,19 +87,35 @@ export async function scrapeFandomPlatform(
     });
 
     // Ingest the results immediately
-    const result = await ingestDataset({
-      datasetId,
-      fandomId: fandom.id,
-      platform,
-      actorId: actorConfig.actorId,
-    });
+    try {
+      const result = await ingestDataset({
+        datasetId,
+        fandomId: fandom.id,
+        platform,
+        actorId: actorConfig.actorId,
+      });
 
-    return {
-      fandomId,
-      platform,
-      success: result.success,
-      itemsCount: result.itemsCount,
-    };
+      // ingestDataset calls updateScrapeRun on success, but ensure it's marked done
+      await updateScrapeRun(datasetId, "succeeded", result.itemsCount);
+
+      return {
+        fandomId,
+        platform,
+        success: result.success,
+        itemsCount: result.itemsCount,
+      };
+    } catch (ingestError) {
+      // Mark run as failed if ingest crashes
+      console.error(`[Scrape] Ingest failed for ${fandom.name} (${platform}):`, ingestError);
+      await updateScrapeRun(datasetId, "failed", 0);
+      return {
+        fandomId,
+        platform,
+        success: false,
+        itemsCount: 0,
+        error: ingestError instanceof Error ? ingestError.message : "Ingest failed",
+      };
+    }
   } catch (error) {
     console.error(`[Scrape] Failed for ${fandom.name} (${platform}):`, error);
     return {
