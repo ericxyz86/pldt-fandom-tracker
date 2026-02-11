@@ -69,6 +69,29 @@ export default function FandomDetailPage() {
   const [fandom, setFandom] = useState<FandomDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
+  const [handleStatus, setHandleStatus] = useState<Record<string, { valid: boolean; error?: string; displayName?: string; followers?: number }>>({});
+  const [verifying, setVerifying] = useState(false);
+
+  const verifyHandles = async () => {
+    if (!fandom) return;
+    setVerifying(true);
+    try {
+      const res = await fetch("/api/fandoms/verify", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ fandomId: fandom.id }),
+      });
+      const data = await res.json();
+      const statusMap: Record<string, { valid: boolean; error?: string; displayName?: string; followers?: number }> = {};
+      for (const r of data.results || []) {
+        statusMap[r.platform] = { valid: r.valid, error: r.error, displayName: r.displayName, followers: r.followers };
+      }
+      setHandleStatus(statusMap);
+    } catch (e) {
+      console.error("Verify failed:", e);
+    }
+    setVerifying(false);
+  };
 
   useEffect(() => {
     setLoading(true);
@@ -200,6 +223,58 @@ export default function FandomDetailPage() {
             </CardHeader>
             <CardContent>
               <PlatformBreakdown platforms={fandom.platforms} />
+            </CardContent>
+          </Card>
+
+          {/* Platform Handles with Verification */}
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between">
+              <CardTitle className="text-sm">Platform Handles</CardTitle>
+              <button
+                onClick={verifyHandles}
+                disabled={verifying}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md border border-input bg-background hover:bg-accent hover:text-accent-foreground disabled:opacity-50 transition-colors"
+              >
+                {verifying ? (
+                  <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="animate-spin"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>
+                ) : (
+                  <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+                )}
+                {verifying ? "Verifying..." : "Verify Handles"}
+              </button>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-2">
+                {fandom.platforms.map((p) => {
+                  const status = handleStatus[p.platform];
+                  return (
+                    <div key={p.id} className="flex items-center justify-between py-2 px-3 rounded-md border text-sm">
+                      <div className="flex items-center gap-3">
+                        <span className="font-medium capitalize w-20">{p.platform}</span>
+                        <span className="text-muted-foreground font-mono text-xs">@{p.handle}</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        {status ? (
+                          status.valid ? (
+                            <span className="flex items-center gap-1 text-emerald-600 text-xs">
+                              <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+                              {status.displayName || "Valid"}
+                              {status.followers ? ` · ${status.followers >= 1000000 ? (status.followers / 1000000).toFixed(1) + "M" : status.followers >= 1000 ? (status.followers / 1000).toFixed(1) + "K" : status.followers}` : ""}
+                            </span>
+                          ) : (
+                            <span className="flex items-center gap-1 text-red-500 text-xs">
+                              <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
+                              {status.error || "Invalid"}
+                            </span>
+                          )
+                        ) : (
+                          <span className="text-xs text-muted-foreground">Not verified</span>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
             </CardContent>
           </Card>
         </TabsContent>
