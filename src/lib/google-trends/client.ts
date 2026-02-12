@@ -184,8 +184,9 @@ export async function fetchGoogleTrendsComparative(
   const cookies = await getSession(geo);
   await sleep(1500);
 
-  // If 8 or fewer keywords, single batch — perfect comparison
-  if (keywords.length <= 8) {
+  // If 5 or fewer keywords, single batch — perfect comparison
+  // (Google's internal API caps at 5 per comparison despite UI showing 8)
+  if (keywords.length <= 5) {
     const batchData = await fetchBatch(keywords, geo, timeRange, cookies);
     return keywords.map((kw) => ({
       keyword: kw,
@@ -201,9 +202,9 @@ export async function fetchGoogleTrendsComparative(
   const preferredAnchors = ["BTS", "BINI", "SB19", "SEVENTEEN", "NewJeans"];
   let anchorKeyword = keywords.find((k) => preferredAnchors.includes(k)) || keywords[0];
 
-  // First batch: anchor + first 7 other keywords (8 total per batch)
+  // First batch: anchor + first 4 other keywords (5 total per batch)
   const otherKeywords = keywords.filter((k) => k !== anchorKeyword);
-  const firstBatch = [anchorKeyword, ...otherKeywords.slice(0, 7)];
+  const firstBatch = [anchorKeyword, ...otherKeywords.slice(0, 4)];
   const firstData = await fetchBatch(firstBatch, geo, timeRange, cookies);
 
   // Verify anchor has data, fall back if not
@@ -229,12 +230,12 @@ export async function fetchGoogleTrendsComparative(
     allResults.set(kw, firstData.get(kw) || []);
   }
 
-  // Process remaining keywords in batches of 7 (+ anchor = 8)
-  const remaining = otherKeywords.slice(7);
-  for (let i = 0; i < remaining.length; i += 7) {
+  // Process remaining keywords in batches of 4 (+ anchor = 5)
+  const remaining = otherKeywords.slice(4);
+  for (let i = 0; i < remaining.length; i += 4) {
     await sleep(8000); // 8s delay between batches to avoid 429
 
-    const batch = remaining.slice(i, i + 7);
+    const batch = remaining.slice(i, i + 4);
     const batchWithAnchor = [anchorKeyword, ...batch];
 
     const batchData = await fetchBatch(
