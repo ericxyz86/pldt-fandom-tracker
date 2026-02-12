@@ -1,7 +1,6 @@
 import { db } from "@/lib/db";
-import { fandoms, fandomPlatforms, scrapeRuns, googleTrends } from "@/lib/db/schema";
+import { fandoms, fandomPlatforms, scrapeRuns, googleTrends as googleTrends_table } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
-import { fetchGoogleTrendsComparative } from "@/lib/google-trends/client";
 import { runActor } from "@/lib/apify/client";
 import { actorConfigs } from "@/lib/apify/actors";
 import { ingestDataset, updateScrapeRun } from "@/lib/services/ingest.service";
@@ -63,6 +62,18 @@ export async function scrapeFandomPlatform(
   const platformEntry = platformRows.find((p) => p.platform === platform);
   const handle = platformEntry?.handle || fandom.name;
 
+  // Insert scrape run record first so we can update it on failure
+  const [scrapeRun] = await db
+    .insert(scrapeRuns)
+    .values({
+      actorId: actorConfig.actorId,
+      fandomId: fandom.id,
+      platform: actorConfig.platform,
+      status: "running",
+      startedAt: new Date(),
+    })
+    .returning({ id: scrapeRuns.id });
+
   try {
     const input = actorConfig.buildInput({
       handle,
@@ -77,48 +88,36 @@ export async function scrapeFandomPlatform(
     // Run actor (blocking — waits for Apify to finish)
     const datasetId = await runActor(actorConfig.actorId, input);
 
-    // Log the scrape run
-    await db.insert(scrapeRuns).values({
-      actorId: actorConfig.actorId,
-      fandomId: fandom.id,
-      platform: actorConfig.platform,
-      status: "running",
-      startedAt: new Date(),
-      apifyRunId: datasetId,
-    });
+    // Update scrape run with the Apify dataset ID
+    await db
+      .update(scrapeRuns)
+      .set({ apifyRunId: datasetId })
+      .where(eq(scrapeRuns.id, scrapeRun.id));
 
     // Ingest the results immediately
-    try {
-      const result = await ingestDataset({
-        datasetId,
-        fandomId: fandom.id,
-        platform,
-        actorId: actorConfig.actorId,
-      });
+    const result = await ingestDataset({
+      datasetId,
+      fandomId: fandom.id,
+      platform,
+      actorId: actorConfig.actorId,
+    });
 
-      // ingestDataset calls updateScrapeRun on success, but ensure it's marked done
-      await updateScrapeRun(datasetId, "succeeded", result.itemsCount);
-
-      return {
-        fandomId,
-        platform,
-        success: result.success,
-        itemsCount: result.itemsCount,
-      };
-    } catch (ingestError) {
-      // Mark run as failed if ingest crashes
-      console.error(`[Scrape] Ingest failed for ${fandom.name} (${platform}):`, ingestError);
-      await updateScrapeRun(datasetId, "failed", 0);
-      return {
-        fandomId,
-        platform,
-        success: false,
-        itemsCount: 0,
-        error: ingestError instanceof Error ? ingestError.message : "Ingest failed",
-      };
-    }
+    return {
+      fandomId,
+      platform,
+      success: result.success,
+      itemsCount: result.itemsCount,
+    };
   } catch (error) {
     console.error(`[Scrape] Failed for ${fandom.name} (${platform}):`, error);
+
+    // Mark the scrape run as failed so it doesn't stay stuck in "running"
+    await db
+      .update(scrapeRuns)
+      .set({ status: "failed", finishedAt: new Date() })
+      .where(eq(scrapeRuns.id, scrapeRun.id))
+      .catch((e) => console.error(`[Scrape] Failed to update scrape run:`, e));
+
     return {
       fandomId,
       platform,
@@ -167,6 +166,106 @@ export async function scrapeAllPlatformsForFandom(
 }
 
 /**
+ * Scrape Google Trends for all tracked fandoms.
+ * Uses comparative batch queries (5 keywords per batch) so values are
+ * normalized relative to each other, not individually.
+ */
+export async function scrapeGoogleTrends(): Promise<{
+  total: number;
+  succeeded: number;
+  failed: number;
+  results: Array<{ fandom: string; keyword: string; dataPoints: number; error?: string }>;
+}> {
+  const { fetchGoogleTrendsComparative } = await import("@/lib/google-trends/client");
+
+  const allFandoms = await db.select().from(fandoms);
+
+  // Build keyword map: use disambiguated names for Google search
+  const keywordMap: Map<string, { id: string; name: string }> = new Map();
+  for (const f of allFandoms) {
+    const keyword = simplifyKeyword(f.name);
+    keywordMap.set(keyword, { id: f.id, name: f.name });
+  }
+
+  const keywords = Array.from(keywordMap.keys());
+  console.log(`[GoogleTrends] Scraping ${keywords.length} keywords in comparative batches...`);
+
+  const trendResults = await fetchGoogleTrendsComparative(keywords, "PH", "today 3-m");
+
+  const results: Array<{ fandom: string; keyword: string; dataPoints: number; error?: string }> = [];
+  let succeeded = 0;
+  let failed = 0;
+
+  for (const trend of trendResults) {
+    const fandom = keywordMap.get(trend.keyword);
+    if (!fandom) continue;
+
+    if (trend.error || trend.dataPoints.length === 0) {
+      results.push({ fandom: fandom.name, keyword: trend.keyword, dataPoints: 0, error: trend.error || "No data" });
+      failed++;
+    } else {
+      await db.delete(googleTrends_table).where(eq(googleTrends_table.fandomId, fandom.id));
+
+      for (const point of trend.dataPoints) {
+        await db.insert(googleTrends_table).values({
+          fandomId: fandom.id,
+          keyword: trend.keyword,
+          date: point.date,
+          interestValue: point.value,
+          region: "PH",
+        });
+      }
+
+      results.push({ fandom: fandom.name, keyword: trend.keyword, dataPoints: trend.dataPoints.length });
+      succeeded++;
+    }
+  }
+
+  return { total: allFandoms.length, succeeded, failed, results };
+}
+
+/**
+ * Simplify a fandom name into a disambiguated Google-searchable keyword.
+ * Adds context words for ambiguous terms (e.g., "SEVENTEEN kpop" not just "SEVENTEEN").
+ */
+function simplifyKeyword(name: string): string {
+  const mappings: Record<string, string> = {
+    "BINI Blooms": "BINI",
+    "BTS ARMY": "BTS",
+    "NewJeans Bunnies": "NewJeans",
+    "SEVENTEEN CARAT": "SEVENTEEN kpop",
+    "KAIA Fans": "KAIA girl group",
+    "ALAMAT Fans": "ALAMAT pboy group",
+    "G22 Fans": "G22 girl group",
+    "VXON - Vixies": "VXON group",
+    "YGIG - WeGo": "YGIG group",
+    "JMFyang Fans": "JMFyang",
+    "AshDres Fans": "AshDres",
+    "AlDub Nation": "AlDub",
+    "Cup of Joe (Joewahs)": "Cup of Joe band",
+    "Team Payaman / Cong TV Universe Fans": "Cong TV",
+    "r/DragRacePhilippines": "Drag Race Philippines",
+  };
+
+  if (mappings[name]) return mappings[name];
+
+  // Check SB19 specifically (has apostrophe issues)
+  if (name.includes("SB19")) return "SB19";
+  if (name.includes("PLUUS")) return "PLUUS band";
+  if (name.includes("MLBB") || name.includes("MPL")) return "MPL Philippines";
+  if (name.includes("Roblox")) return "Roblox Philippines";
+  if (name.includes("Genshin")) return "Genshin Impact Philippines";
+  if (name.includes("Valorant")) return "Valorant Philippines";
+  if (name.includes("BookTok")) return "BookTok Philippines";
+  if (name.includes("Cosplay")) return "Cosplay Philippines";
+
+  // Default: first two words max
+  const cleaned = name.split(/[/\\(]/)[0].trim();
+  const words = cleaned.split(/\s+/);
+  return words.slice(0, 2).join(" ");
+}
+
+/**
  * Scrape all fandoms across all their configured platforms, sequentially.
  */
 export async function scrapeAllFandoms(): Promise<ScrapeResult[]> {
@@ -195,104 +294,4 @@ export async function scrapeAllFandoms(): Promise<ScrapeResult[]> {
   }
 
   return allResults;
-}
-
-
-/**
- * Scrape Google Trends interest-over-time data for all fandoms.
- * Uses comparative batch queries (5 keywords per batch) so values are
- * normalized relative to each other, not individually.
- */
-export async function scrapeGoogleTrends(): Promise<{
-  total: number;
-  succeeded: number;
-  failed: number;
-  results: Array<{ fandom: string; keyword: string; dataPoints: number; error?: string }>;
-}> {
-  const allFandoms = await db.select().from(fandoms);
-
-  // Build keyword map: use short/searchable names, not fandom display names
-  const keywordMap: Map<string, { id: string; name: string }> = new Map();
-  for (const f of allFandoms) {
-    const keyword = simplifyKeyword(f.name);
-    keywordMap.set(keyword, { id: f.id, name: f.name });
-  }
-
-  const keywords = Array.from(keywordMap.keys());
-  console.log(`[GoogleTrends] Scraping ${keywords.length} keywords in comparative batches...`);
-
-  const trendResults = await fetchGoogleTrendsComparative(keywords, "PH", "today 3-m");
-
-  const results: Array<{ fandom: string; keyword: string; dataPoints: number; error?: string }> = [];
-  let succeeded = 0;
-  let failed = 0;
-
-  for (const trend of trendResults) {
-    const fandom = keywordMap.get(trend.keyword);
-    if (!fandom) continue;
-
-    if (trend.error || trend.dataPoints.length === 0) {
-      results.push({ fandom: fandom.name, keyword: trend.keyword, dataPoints: 0, error: trend.error || "No data" });
-      failed++;
-    } else {
-      await db.delete(googleTrends).where(eq(googleTrends.fandomId, fandom.id));
-
-      for (const point of trend.dataPoints) {
-        await db.insert(googleTrends).values({
-          fandomId: fandom.id,
-          keyword: trend.keyword,
-          date: point.date,
-          interestValue: point.value,
-          region: "PH",
-        });
-      }
-
-      results.push({ fandom: fandom.name, keyword: trend.keyword, dataPoints: trend.dataPoints.length });
-      succeeded++;
-    }
-  }
-
-  return { total: allFandoms.length, succeeded, failed, results };
-}
-
-/**
- * Simplify a fandom name into a Google-searchable keyword.
- */
-function simplifyKeyword(name: string): string {
-  const mappings: Record<string, string> = {
-    "BINI Blooms": "BINI",
-    "BTS ARMY": "BTS",
-    "NewJeans Bunnies": "NewJeans",
-    "SEVENTEEN CARAT": "SEVENTEEN",
-    "KAIA Fans": "KAIA",
-    "ALAMAT Fans": "ALAMAT",
-    "G22 Fans": "G22",
-    "VXON - Vixies": "VXON",
-    "YGIG - WeGo": "YGIG",
-    "JMFyang Fans": "JMFyang",
-    "AshDres Fans": "AshDres",
-    "AlDub Nation": "AlDub",
-    "Cup of Joe (Joewahs)": "Cup of Joe band",
-    "Team Payaman / Cong TV Universe Fans": "Cong TV",
-    "r/DragRacePhilippines": "Drag Race Philippines",
-  };
-
-  if (mappings[name]) return mappings[name];
-
-  // Check SB19 specifically (has apostrophe issues)
-  if (name.includes("SB19")) return "SB19";
-  if (name.includes("PLUUS")) return "PLUUS";
-
-  // Fuzzy: check partial match
-  for (const [key, val] of Object.entries(mappings)) {
-    if (name.toLowerCase().startsWith(key.toLowerCase().split(" ")[0])) return val;
-  }
-
-  // Names with slashes, parens, long descriptions — take first meaningful part
-  const cleaned = name.split(/[/\\(]/)[0].trim();
-  if (cleaned.includes(":")) return cleaned.split(":")[1]?.trim() || cleaned;
-
-  // Default: first two words max
-  const words = cleaned.split(/\s+/);
-  return words.slice(0, 2).join(" ");
 }
