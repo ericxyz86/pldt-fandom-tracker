@@ -71,11 +71,17 @@ export default function TrendsPage() {
   }, [trends, rangeDays]);
 
   // Build from ALL trends (not filtered) so slug list + colors are stable across date ranges
+  // Also capture the simplified keyword used for Google Trends search
   const allFandomSlugs = useMemo(() => {
-    const map = new Map<string, string>();
-    trends.forEach((t) => map.set(t.fandomSlug, t.fandomName));
-    // Sort alphabetically for consistent ordering
-    return Array.from(map.entries()).sort((a, b) => a[1].localeCompare(b[1]));
+    const map = new Map<string, { name: string; keyword: string }>();
+    trends.forEach((t) => {
+      if (!map.has(t.fandomSlug)) {
+        map.set(t.fandomSlug, { name: t.fandomName, keyword: t.keyword });
+      }
+    });
+    return Array.from(map.entries())
+      .map(([slug, info]) => [slug, info.name, info.keyword] as [string, string, string])
+      .sort((a, b) => a[1].localeCompare(b[1]));
   }, [trends]);
 
   // Only show fandoms that have data in the current date range
@@ -125,9 +131,12 @@ export default function TrendsPage() {
   }, [filteredTrends, fandomSlugs]);
 
   const chartConfig = Object.fromEntries(
-    fandomSlugs.map(([slug, name]) => [
+    fandomSlugs.map(([slug, name, keyword]) => [
       slug,
-      { label: name, color: getFandomColor(slug) },
+      {
+        label: keyword && keyword !== name ? `${name} (${keyword})` : name,
+        color: getFandomColor(slug),
+      },
     ])
   );
 
@@ -229,13 +238,18 @@ export default function TrendsPage() {
           </Card>
 
           <div className="flex flex-wrap gap-3">
-            {fandomSlugs.map(([slug, name]) => (
+            {fandomSlugs.map(([slug, name, keyword]) => (
               <div key={slug} className="flex items-center gap-2 text-sm">
                 <div
                   className="h-3 w-3 rounded-full"
                   style={{ backgroundColor: getFandomColor(slug) }}
                 />
-                <span>{name}</span>
+                <span>
+                  {name}
+                  {keyword && keyword !== name && (
+                    <span className="text-muted-foreground ml-1">({keyword})</span>
+                  )}
+                </span>
               </div>
             ))}
           </div>

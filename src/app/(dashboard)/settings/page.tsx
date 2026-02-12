@@ -383,6 +383,36 @@ export default function SettingsPage() {
         method: "POST",
       });
       const data = await res.json();
+      if (data.status === "started" || data.status === "running") {
+        setInsightsResult({
+          success: true,
+          message: data.message || "Generating insights...",
+        });
+        // Poll for completion
+        const pollInterval = setInterval(async () => {
+          try {
+            const pollRes = await fetch("/api/fandoms/generate-insights");
+            const pollData = await pollRes.json();
+            if (!pollData.generating && pollData.lastResult) {
+              clearInterval(pollInterval);
+              setInsightsResult({
+                success: true,
+                message: `Generated insights for ${pollData.lastResult.succeeded}/${pollData.lastResult.total} fandoms`,
+              });
+              setGeneratingInsights(false);
+              await fetchFandoms();
+            }
+          } catch {
+            // Keep polling
+          }
+        }, 5000);
+        // Safety: stop polling after 5 minutes
+        setTimeout(() => {
+          clearInterval(pollInterval);
+          setGeneratingInsights(false);
+        }, 300000);
+        return; // Don't hit finally block yet
+      }
       if (res.ok) {
         setInsightsResult({
           success: true,
@@ -396,7 +426,7 @@ export default function SettingsPage() {
         });
       }
     } catch {
-      setInsightsResult({ success: false, message: "Network error" });
+      setInsightsResult({ success: false, message: "Network error — check back in ~90 seconds, generation may still be running." });
     } finally {
       setGeneratingInsights(false);
     }

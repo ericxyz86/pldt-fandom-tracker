@@ -8,7 +8,7 @@ import {
   googleTrends,
   scrapeRuns,
 } from "@/lib/db/schema";
-import { eq, and, desc } from "drizzle-orm";
+import { eq, and, desc, sql } from "drizzle-orm";
 import { getDatasetItems } from "@/lib/apify/client";
 import {
   normalizeContent,
@@ -90,16 +90,35 @@ export async function ingestDataset(params: {
   const normalizedMetrics = normalizeMetrics(validPlatform, rawItems);
   const today = new Date().toISOString().split("T")[0];
 
+  // Fallback: if normalizer couldn't extract followers, use stored fandom_platforms value
+  if (normalizedMetrics.followers === 0) {
+    const storedPlatform = await db
+      .select({ followers: fandomPlatforms.followers })
+      .from(fandomPlatforms)
+      .where(
+        and(
+          eq(fandomPlatforms.fandomId, fandomId),
+          eq(fandomPlatforms.platform, validPlatform)
+        )
+      )
+      .limit(1);
+    if (storedPlatform.length > 0 && storedPlatform[0].followers > 0) {
+      normalizedMetrics.followers = storedPlatform[0].followers;
+    }
+  }
+
   // Compute growth rate by comparing against previous snapshot
   let growthRate = 0;
   if (normalizedMetrics.followers > 0) {
+    // Compare against previous snapshot from a DIFFERENT date (not today)
     const previousSnapshot = await db
-      .select({ followers: metricSnapshots.followers })
+      .select({ followers: metricSnapshots.followers, date: metricSnapshots.date })
       .from(metricSnapshots)
       .where(
         and(
           eq(metricSnapshots.fandomId, fandomId),
-          eq(metricSnapshots.platform, validPlatform)
+          eq(metricSnapshots.platform, validPlatform),
+          sql`${metricSnapshots.date} < ${today}`
         )
       )
       .orderBy(desc(metricSnapshots.date))
@@ -133,6 +152,18 @@ export async function ingestDataset(params: {
     avgLikes: normalizedMetrics.avgLikes,
     avgComments: normalizedMetrics.avgComments,
     avgShares: normalizedMetrics.avgShares,
+  }).onConflictDoUpdate({
+    target: [metricSnapshots.fandomId, metricSnapshots.platform, metricSnapshots.date],
+    set: {
+      followers: normalizedMetrics.followers,
+      postsCount: normalizedMetrics.postsCount,
+      engagementTotal: normalizedMetrics.engagementTotal,
+      engagementRate: engagementRate.toFixed(4),
+      growthRate: growthRate.toFixed(4),
+      avgLikes: normalizedMetrics.avgLikes,
+      avgComments: normalizedMetrics.avgComments,
+      avgShares: normalizedMetrics.avgShares,
+    },
   });
 
   // 3. Update follower count on fandom_platforms

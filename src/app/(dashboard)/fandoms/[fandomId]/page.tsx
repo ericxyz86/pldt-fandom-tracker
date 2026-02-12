@@ -286,7 +286,7 @@ export default function FandomDetailPage() {
             </Card>
             <Card>
               <CardHeader>
-                <CardTitle className="text-sm">Growth Rate</CardTitle>
+                <CardTitle className="text-sm">Follower Growth</CardTitle>
               </CardHeader>
               <CardContent>
                 <GrowthChart metrics={fandom.latestMetrics} />
@@ -492,7 +492,7 @@ export default function FandomDetailPage() {
            (!fandom.influencersByFollowers || fandom.influencersByFollowers.length === 0) ? (
             <Card>
               <CardContent className="pt-6">
-                <p className="text-sm text-muted-foreground">No influencer data available yet.</p>
+                <p className="text-sm text-muted-foreground">Influencer identification coming in the next data cycle. Real influencer data will be populated from verified social media scraping — no AI-estimated data.</p>
               </CardContent>
             </Card>
           ) : (

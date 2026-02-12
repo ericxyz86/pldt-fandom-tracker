@@ -317,27 +317,48 @@ function normalizeInstagramMetrics(rawData: any[]): NormalizedMetric {
 }
 
 function normalizeTikTokMetrics(rawData: any[]): NormalizedMetric {
-  const totalLikes = rawData.reduce(
+  // Filter out profile items for engagement calculation
+  const videoItems = rawData.filter(item => item.type !== 'profile');
+  const calcItems = videoItems.length > 0 ? videoItems : rawData;
+
+  const totalLikes = calcItems.reduce(
     (sum, item) => sum + (item.diggCount || item.likes || 0),
     0
   );
-  const totalComments = rawData.reduce(
+  const totalComments = calcItems.reduce(
     (sum, item) => sum + (item.commentCount || item.comments || 0),
     0
   );
-  const totalShares = rawData.reduce(
+  const totalShares = calcItems.reduce(
     (sum, item) => sum + (item.shareCount || item.shares || 0),
     0
   );
+
+  // Extract followers: custom actor (type:'profile', followerCount) or Store actor (authorMeta.fans)
+  let followers = 0;
+  const profileItem = rawData.find(item => item.type === 'profile');
+  if (profileItem) {
+    followers = parseInt(profileItem.followerCount || profileItem.fans || 0);
+  }
+  if (!followers) {
+    followers = rawData[0]?.authorMeta?.fans || rawData[0]?.authorMeta?.followers || 0;
+  }
+  if (!followers) {
+    for (const item of rawData) {
+      const fc = item.followerCount || item.authorMeta?.fans || 0;
+      if (fc > 0) { followers = parseInt(fc); break; }
+    }
+  }
+
   return {
-    followers: rawData[0]?.authorMeta?.fans || 0,
-    postsCount: rawData.length,
+    followers,
+    postsCount: calcItems.length,
     engagementTotal: totalLikes + totalComments + totalShares,
-    avgLikes: rawData.length ? Math.round(totalLikes / rawData.length) : 0,
-    avgComments: rawData.length
-      ? Math.round(totalComments / rawData.length)
+    avgLikes: calcItems.length ? Math.round(totalLikes / calcItems.length) : 0,
+    avgComments: calcItems.length
+      ? Math.round(totalComments / calcItems.length)
       : 0,
-    avgShares: rawData.length ? Math.round(totalShares / rawData.length) : 0,
+    avgShares: calcItems.length ? Math.round(totalShares / calcItems.length) : 0,
   };
 }
 
@@ -354,6 +375,9 @@ function normalizeFacebookMetrics(rawData: any[]): NormalizedMetric {
     (sum, item) => sum + (item.shares || item.sharesCount || 0),
     0
   );
+
+  // Facebook scrape data doesn't reliably contain page follower counts
+  // Rely on ingest fallback to use stored fandom_platforms.followers instead
   return {
     followers: 0,
     postsCount: rawData.length,
@@ -400,6 +424,9 @@ function normalizeTwitterMetrics(rawData: any[]): NormalizedMetric {
     (sum, item) => sum + (item.retweet_count || item.retweetCount || 0),
     0
   );
+
+  // Twitter scrape data contains random tweet authors' follower counts (unreliable)
+  // Rely on ingest fallback to use stored fandom_platforms.followers instead
   return {
     followers: 0,
     postsCount: rawData.length,
