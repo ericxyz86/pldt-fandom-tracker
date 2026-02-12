@@ -36,9 +36,16 @@ interface TrendItem {
   fandomSlug: string;
 }
 
+const DATE_RANGES = [
+  { label: "7 days", days: 7 },
+  { label: "30 days", days: 30 },
+  { label: "90 days", days: 90 },
+] as const;
+
 export default function TrendsPage() {
   const [trends, setTrends] = useState<TrendItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [rangeDays, setRangeDays] = useState<number>(90);
 
   const loadTrends = () => {
     setLoading(true);
@@ -55,22 +62,30 @@ export default function TrendsPage() {
     loadTrends();
   }, []);
 
+  // Filter trends by selected date range
+  const filteredTrends = useMemo(() => {
+    const cutoff = new Date();
+    cutoff.setDate(cutoff.getDate() - rangeDays);
+    const cutoffStr = cutoff.toISOString().split("T")[0];
+    return trends.filter((t) => t.date >= cutoffStr);
+  }, [trends, rangeDays]);
+
   const fandomSlugs = useMemo(() => {
     const map = new Map<string, string>();
-    trends.forEach((t) => map.set(t.fandomSlug, t.fandomName));
+    filteredTrends.forEach((t) => map.set(t.fandomSlug, t.fandomName));
     return Array.from(map.entries());
-  }, [trends]);
+  }, [filteredTrends]);
 
   const trendData = useMemo(() => {
     const dateMap: Record<string, Record<string, number>> = {};
-    trends.forEach((t) => {
+    filteredTrends.forEach((t) => {
       if (!dateMap[t.date]) dateMap[t.date] = {};
       dateMap[t.date][t.fandomSlug] = t.interestValue;
     });
     return Object.entries(dateMap)
       .map(([date, values]) => ({ date, ...values }))
       .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
-  }, [trends]);
+  }, [filteredTrends]);
 
   const chartConfig = Object.fromEntries(
     fandomSlugs.map(([slug, name], i) => [
@@ -118,10 +133,25 @@ export default function TrendsPage() {
       ) : (
         <>
           <Card>
-            <CardHeader>
+            <CardHeader className="flex flex-row items-center justify-between">
               <CardTitle className="text-sm">
-                Interest Over Time (90 days)
+                Interest Over Time ({rangeDays} days)
               </CardTitle>
+              <div className="flex gap-1">
+                {DATE_RANGES.map((r) => (
+                  <button
+                    key={r.days}
+                    onClick={() => setRangeDays(r.days)}
+                    className={`px-3 py-1 text-xs rounded-md transition-colors ${
+                      rangeDays === r.days
+                        ? "bg-primary text-primary-foreground"
+                        : "bg-muted text-muted-foreground hover:bg-muted/80"
+                    }`}
+                  >
+                    {r.label}
+                  </button>
+                ))}
+              </div>
             </CardHeader>
             <CardContent>
               <ChartContainer
