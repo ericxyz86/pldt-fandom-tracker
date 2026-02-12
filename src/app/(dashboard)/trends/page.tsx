@@ -12,18 +12,18 @@ import { Line, LineChart, CartesianGrid, XAxis, YAxis } from "recharts";
 import { AIInsightCard } from "@/components/dashboard/ai-insight-card";
 import { TrendsUpload } from "@/components/dashboard/trends-upload";
 
-const COLORS = [
-  "#2563eb",
-  "#e11d48",
-  "#16a34a",
-  "#ca8a04",
-  "#9333ea",
-  "#e91e8c",
-  "#ff4500",
-  "#1877f2",
-  "#00c853",
-  "#ff6d00",
-];
+// Deterministic color per fandom slug — stable across date ranges, add/delete
+function getFandomColor(slug: string): string {
+  let hash = 0;
+  for (let i = 0; i < slug.length; i++) {
+    hash = ((hash << 5) - hash) + slug.charCodeAt(i);
+    hash |= 0;
+  }
+  // Spread hue across 360° wheel, vary lightness slightly for extra distinction
+  const hue = Math.abs(hash) % 360;
+  const lightness = 42 + (Math.abs(hash >> 8) % 16); // 42-58%
+  return `hsl(${hue}, 72%, ${lightness}%)`;
+}
 
 interface TrendItem {
   id: string;
@@ -70,11 +70,25 @@ export default function TrendsPage() {
     return trends.filter((t) => t.date >= cutoffStr);
   }, [trends, rangeDays]);
 
-  const fandomSlugs = useMemo(() => {
+  // Build from ALL trends (not filtered) so slug list + colors are stable across date ranges
+  const allFandomSlugs = useMemo(() => {
     const map = new Map<string, string>();
-    filteredTrends.forEach((t) => map.set(t.fandomSlug, t.fandomName));
-    return Array.from(map.entries());
+    trends.forEach((t) => map.set(t.fandomSlug, t.fandomName));
+    // Sort alphabetically for consistent ordering
+    return Array.from(map.entries()).sort((a, b) => a[1].localeCompare(b[1]));
+  }, [trends]);
+
+  // Only show fandoms that have data in the current date range
+  const visibleSlugs = useMemo(() => {
+    const visible = new Set<string>();
+    filteredTrends.forEach((t) => visible.add(t.fandomSlug));
+    return visible;
   }, [filteredTrends]);
+
+  const fandomSlugs = useMemo(
+    () => allFandomSlugs.filter(([slug]) => visibleSlugs.has(slug)),
+    [allFandomSlugs, visibleSlugs]
+  );
 
   const trendData = useMemo(() => {
     const dateMap: Record<string, Record<string, number>> = {};
@@ -111,9 +125,9 @@ export default function TrendsPage() {
   }, [filteredTrends, fandomSlugs]);
 
   const chartConfig = Object.fromEntries(
-    fandomSlugs.map(([slug, name], i) => [
+    fandomSlugs.map(([slug, name]) => [
       slug,
-      { label: name, color: COLORS[i % COLORS.length] },
+      { label: name, color: getFandomColor(slug) },
     ])
   );
 
@@ -199,12 +213,12 @@ export default function TrendsPage() {
                   />
                   <YAxis className="text-xs" domain={[0, 100]} />
                   <ChartTooltip content={<ChartTooltipContent />} />
-                  {fandomSlugs.map(([slug], i) => (
+                  {fandomSlugs.map(([slug]) => (
                     <Line
                       key={slug}
                       type="monotone"
                       dataKey={slug}
-                      stroke={COLORS[i % COLORS.length]}
+                      stroke={getFandomColor(slug)}
                       strokeWidth={2}
                       dot={false}
                     />
@@ -215,11 +229,11 @@ export default function TrendsPage() {
           </Card>
 
           <div className="flex flex-wrap gap-3">
-            {fandomSlugs.map(([slug, name], i) => (
+            {fandomSlugs.map(([slug, name]) => (
               <div key={slug} className="flex items-center gap-2 text-sm">
                 <div
                   className="h-3 w-3 rounded-full"
-                  style={{ backgroundColor: COLORS[i % COLORS.length] }}
+                  style={{ backgroundColor: getFandomColor(slug) }}
                 />
                 <span>{name}</span>
               </div>
