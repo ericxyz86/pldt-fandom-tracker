@@ -276,12 +276,31 @@ export async function fetchGoogleTrendsComparative(
     }
   }
 
-  return keywords.map((kw) => ({
-    keyword: kw,
-    geo,
-    dataPoints: allResults.get(kw) || [],
-    error: (allResults.get(kw) || []).length === 0 ? "No data" : undefined,
-  }));
+  // Final normalization: scale everything to 0-100 like Google Trends does
+  // Find the global maximum across all keywords and all dates
+  let globalMax = 0;
+  for (const points of allResults.values()) {
+    for (const p of points) {
+      if (p.value > globalMax) globalMax = p.value;
+    }
+  }
+
+  return keywords.map((kw) => {
+    const points = allResults.get(kw) || [];
+    const normalizedPoints =
+      globalMax > 0
+        ? points.map((p) => ({
+            date: p.date,
+            value: Math.round((p.value / globalMax) * 100),
+          }))
+        : points;
+    return {
+      keyword: kw,
+      geo,
+      dataPoints: normalizedPoints,
+      error: normalizedPoints.length === 0 ? "No data" : undefined,
+    };
+  });
 }
 
 /**
