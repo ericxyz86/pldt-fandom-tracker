@@ -82,10 +82,33 @@ export default function TrendsPage() {
       if (!dateMap[t.date]) dateMap[t.date] = {};
       dateMap[t.date][t.fandomSlug] = t.interestValue;
     });
-    return Object.entries(dateMap)
+    const sorted = Object.entries(dateMap)
       .map(([date, values]) => ({ date, ...values }))
       .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
-  }, [filteredTrends]);
+
+    // Re-normalize to 0-100 within the visible window
+    // so the highest point in the filtered range = 100
+    const slugKeys = fandomSlugs.map(([slug]) => slug);
+    let maxVal = 0;
+    for (const row of sorted) {
+      for (const key of slugKeys) {
+        const v = (row as Record<string, number | string>)[key];
+        if (typeof v === "number" && v > maxVal) maxVal = v;
+      }
+    }
+    if (maxVal > 0 && maxVal !== 100) {
+      const scale = 100 / maxVal;
+      return sorted.map((row) => {
+        const normalized: Record<string, number | string> = { date: row.date };
+        for (const key of slugKeys) {
+          const v = (row as Record<string, number | string>)[key];
+          normalized[key] = typeof v === "number" ? Math.round(v * scale) : 0;
+        }
+        return normalized;
+      });
+    }
+    return sorted;
+  }, [filteredTrends, fandomSlugs]);
 
   const chartConfig = Object.fromEntries(
     fandomSlugs.map(([slug, name], i) => [
