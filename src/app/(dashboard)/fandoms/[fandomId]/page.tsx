@@ -12,6 +12,7 @@ import { PlatformIcons } from "@/components/dashboard/platform-icon";
 import { EngagementChart } from "@/components/dashboard/engagement-chart";
 import { GrowthChart } from "@/components/dashboard/growth-chart";
 import { PlatformBreakdown } from "@/components/dashboard/platform-breakdown";
+import { RegionalMap } from "@/components/dashboard/regional-map";
 import { formatNumber, formatPercent } from "@/lib/utils/format";
 import {
   Table,
@@ -270,6 +271,7 @@ export default function FandomDetailPage() {
       <Tabs defaultValue="metrics">
         <TabsList>
           <TabsTrigger value="metrics">Metrics</TabsTrigger>
+          <TabsTrigger value="regional">Geographic</TabsTrigger>
           <TabsTrigger value="content">Content</TabsTrigger>
           <TabsTrigger value="influencers">Influencers</TabsTrigger>
         </TabsList>
@@ -417,6 +419,10 @@ export default function FandomDetailPage() {
               </div>
             </CardContent>
           </Card>
+        </TabsContent>
+
+        <TabsContent value="regional">
+          <RegionalMap fandomId={fandom.id} fandomName={fandom.name} />
         </TabsContent>
 
         <TabsContent value="content">
