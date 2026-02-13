@@ -79,23 +79,34 @@ export async function GET(request: NextRequest) {
     }
 
     // Map region codes to human-readable names
+    // Google Trends uses inconsistent codes — some are ISO 3166-2, some are custom
     const regionNames: Record<string, string> = {
-      "PH-NCR": "National Capital Region",
+      // Standard codes
+      "PH-NCR": "Metro Manila (NCR)",
       "PH-CAL": "Calabarzon",
       "PH-CEN": "Central Luzon",
-      "PH-07": "Central Visayas",
-      "PH-11": "Davao Region",
-      "PH-03": "Ilocos Region",
-      "PH-10": "Northern Mindanao",
+      "PH-CAR": "Cordillera (CAR)",
+      
+      // Numbered regions
+      "PH-01": "Ilocos Region",
+      "PH-02": "Cagayan Valley",
+      "PH-03": "Central Luzon",
       "PH-05": "Bicol Region",
       "PH-06": "Western Visayas",
+      "PH-07": "Central Visayas",
       "PH-08": "Eastern Visayas",
-      "PH-02": "Cagayan Valley",
       "PH-09": "Zamboanga Peninsula",
+      "PH-10": "Northern Mindanao",
+      "PH-11": "Davao Region",
       "PH-12": "Soccsksargen",
-      "PH-CAR": "Cordillera",
       "PH-13": "Caraga",
       "PH-14": "ARMM",
+      "PH-15": "BARMM",
+      
+      // Google's weird codes
+      "PH-00": "Metro Manila (NCR)", // Google sometimes uses 00 for NCR
+      "PH-40": "Calabarzon (Region IV-A)", // Alternative code
+      "PH-41": "MIMAROPA (Region IV-B)",
     };
 
     // Convert each keyword's data to the response format
