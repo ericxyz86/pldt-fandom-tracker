@@ -111,21 +111,25 @@ export async function POST(request: NextRequest) {
           });
         }
       } else {
-        // Fallback: no existing keywords, generate new ones
-        searchTerms.push({
-          fandomId: fandom.id,
-          keyword: fandom.name,
-          type: "fandom",
-        });
-
-        const artistName = fandom.fandomGroup || extractArtistName(fandom.name);
-        if (artistName && artistName !== fandom.name) {
+        // Fallback: no existing keywords, generate simplified artist name
+        // Use extractArtistName to get clean keyword (e.g., "ALAMAT" from "ALAMAT Fans")
+        const artistName = extractArtistName(fandom.name);
+        
+        // Only add fandom name if it's different from simplified artist name
+        if (artistName !== fandom.name) {
           searchTerms.push({
             fandomId: fandom.id,
             keyword: artistName,
             type: "artist",
           });
         }
+        
+        // Always add the full fandom name as well
+        searchTerms.push({
+          fandomId: fandom.id,
+          keyword: fandom.name,
+          type: "fandom",
+        });
       }
     }
 
