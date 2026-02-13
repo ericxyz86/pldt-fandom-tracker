@@ -42,7 +42,13 @@ export function middleware(req: NextRequest) {
     return NextResponse.next();
   }
 
-  // Check 2: Same-origin request (browser dashboard usage)
+  // Check 2: X-API-Secret header (for internal webhooks)
+  const xApiSecret = req.headers.get("x-api-secret");
+  if (apiSecret && xApiSecret === apiSecret) {
+    return NextResponse.next();
+  }
+
+  // Check 3: Same-origin request (browser dashboard usage)
   const origin = req.headers.get("origin");
   const referer = req.headers.get("referer");
   const host = req.headers.get("host");
