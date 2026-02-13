@@ -339,7 +339,7 @@ export async function getAllTrends() {
 
 export async function getRecommendations(): Promise<Recommendation[]> {
   // Fetch fandoms, content counts, and all content for insight analysis
-  const [allFandoms, contentCounts, allContentRows] = await Promise.all([
+  const [allFandoms, contentCounts, allContentRows, platformMetrics] = await Promise.all([
     getAllFandoms(),
     db
       .select({
@@ -360,11 +360,32 @@ export async function getRecommendations(): Promise<Recommendation[]> {
         hashtags: contentItems.hashtags,
       })
       .from(contentItems),
+    // Get platform-level metrics: content count and engagement by platform
+    db
+      .select({
+        fandomId: contentItems.fandomId,
+        platform: contentItems.platform,
+        contentCount: sql<number>`count(*)`,
+        totalEngagement: sql<number>`sum(${contentItems.likes} + ${contentItems.comments} + ${contentItems.shares})`,
+        avgEngagement: sql<number>`avg(${contentItems.likes} + ${contentItems.comments} + ${contentItems.shares})`,
+        maxPublishedAt: sql<string>`max(${contentItems.publishedAt})`,
+      })
+      .from(contentItems)
+      .groupBy(contentItems.fandomId, contentItems.platform),
   ]);
 
   const countMap = new Map(
     contentCounts.map((c) => [c.fandomId, Number(c.count)])
   );
+
+  // Group platform metrics by fandom
+  const platformMetricsByFandom = new Map<string, typeof platformMetrics>();
+  for (const metric of platformMetrics) {
+    const key = metric.fandomId;
+    const list = platformMetricsByFandom.get(key) || [];
+    list.push(metric);
+    platformMetricsByFandom.set(key, list);
+  }
 
   // Group content by fandom for insight generation
   const contentByFandom = new Map<string, typeof allContentRows>();
@@ -384,8 +405,34 @@ export async function getRecommendations(): Promise<Recommendation[]> {
     const volumeScore = Math.min((volume / 10) * 30, 30);
     const score = Math.round(engScore + growthScore + volumeScore);
 
-    const bestPlatform = f.platforms.length > 0
-      ? f.platforms.reduce((a, b) => (a.followers > b.followers ? a : b))
+    // Smart platform selection: weighted score based on activity, engagement, and reach
+    const platformScores = f.platforms.map((plat) => {
+      const metrics = platformMetricsByFandom.get(f.id)?.find(
+        (m) => m.platform === plat.platform
+      );
+
+      const contentCount = Number(metrics?.contentCount || 0);
+      const avgEngagement = Number(metrics?.avgEngagement || 0);
+      const recencyDays = metrics?.maxPublishedAt
+        ? Math.max(0, 30 - Math.floor((Date.now() - new Date(metrics.maxPublishedAt).getTime()) / (1000 * 60 * 60 * 24)))
+        : 0;
+
+      // Weighted score: 40% content volume, 30% engagement, 20% followers, 10% recency
+      const contentScore = Math.min((contentCount / 20) * 40, 40);
+      const engagementScore = Math.min((avgEngagement / 1000) * 30, 30);
+      const followerScore = Math.min((plat.followers / 1000000) * 20, 20);
+      const recencyScore = (recencyDays / 30) * 10;
+
+      return {
+        platform: plat,
+        score: contentScore + engagementScore + followerScore + recencyScore,
+        contentCount,
+        avgEngagement,
+      };
+    });
+
+    const bestPlatform = platformScores.length > 0
+      ? platformScores.reduce((a, b) => (a.score > b.score ? a : b)).platform
       : null;
 
     const isHighGrowth = f.weeklyGrowthRate > 2;
