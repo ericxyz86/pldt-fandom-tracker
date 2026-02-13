@@ -100,8 +100,8 @@ export async function GET(request: NextRequest) {
       "PH-11": "Davao Region",
       "PH-12": "Soccsksargen",
       "PH-13": "Caraga",
-      "PH-14": "ARMM",
-      "PH-15": "BARMM",
+      "PH-14": "ARMM (defunct)",
+      "PH-15": "Cordillera (CAR)",
       
       // Google's weird codes
       "PH-00": "Metro Manila (NCR)", // Google sometimes uses 00 for NCR
