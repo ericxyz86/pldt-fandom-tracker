@@ -61,7 +61,19 @@ export function RegionalMap({ fandomId, fandomName }: RegionalMapProps) {
   }, [fandomId]);
 
   const selectedDataset = datasets.find((d) => d.keyword === selectedKeyword);
-  const regions = selectedDataset?.regions || [];
+  const rawRegions = selectedDataset?.regions || [];
+  
+  // Deduplicate regions by taking the maximum interestValue for each regionCode
+  const regionMap = new Map<string, RegionalData>();
+  rawRegions.forEach((region) => {
+    const existing = regionMap.get(region.regionCode);
+    if (!existing || region.interestValue > existing.interestValue) {
+      regionMap.set(region.regionCode, region);
+    }
+  });
+  const regions = Array.from(regionMap.values()).sort(
+    (a, b) => b.interestValue - a.interestValue
+  );
 
   // Color scale: 0-100 → hsl(0, 70%, lightness)
   // 0 = very light, 100 = deep red
