@@ -9,6 +9,11 @@ interface RegionalData {
   interestValue: number;
 }
 
+interface DatasetResponse {
+  keyword: string;
+  regions: RegionalData[];
+}
+
 interface RegionalMapProps {
   fandomId: string;
   fandomName: string;
@@ -19,7 +24,8 @@ interface RegionalMapProps {
  * Shows fandom interest strength by province/region
  */
 export function RegionalMap({ fandomId, fandomName }: RegionalMapProps) {
-  const [regions, setRegions] = useState<RegionalData[]>([]);
+  const [datasets, setDatasets] = useState<DatasetResponse[]>([]);
+  const [selectedKeyword, setSelectedKeyword] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -30,7 +36,19 @@ export function RegionalMap({ fandomId, fandomName }: RegionalMapProps) {
         const res = await fetch(`/api/regional-trends?fandomId=${fandomId}`);
         if (!res.ok) throw new Error("Failed to fetch regional data");
         const data = await res.json();
-        setRegions(data.regions || []);
+        const fetchedDatasets = data.datasets || [];
+        setDatasets(fetchedDatasets);
+        
+        // Auto-select the dataset with the most data
+        if (fetchedDatasets.length > 0) {
+          const best = fetchedDatasets.reduce((a: DatasetResponse, b: DatasetResponse) => {
+            const aMax = Math.max(...a.regions.map((r) => r.interestValue), 0);
+            const bMax = Math.max(...b.regions.map((r) => r.interestValue), 0);
+            return bMax > aMax ? b : a;
+          });
+          setSelectedKeyword(best.keyword);
+        }
+        
         setError(null);
       } catch (err) {
         setError(err instanceof Error ? err.message : "Unknown error");
@@ -41,6 +59,9 @@ export function RegionalMap({ fandomId, fandomName }: RegionalMapProps) {
 
     fetchRegionalData();
   }, [fandomId]);
+
+  const selectedDataset = datasets.find((d) => d.keyword === selectedKeyword);
+  const regions = selectedDataset?.regions || [];
 
   // Color scale: 0-100 → hsl(0, 70%, lightness)
   // 0 = very light, 100 = deep red
@@ -61,7 +82,7 @@ export function RegionalMap({ fandomId, fandomName }: RegionalMapProps) {
     );
   }
 
-  if (error || regions.length === 0) {
+  if (error || datasets.length === 0) {
     return (
       <Card>
         <CardHeader>
@@ -83,6 +104,31 @@ export function RegionalMap({ fandomId, fandomName }: RegionalMapProps) {
         <CardDescription>
           Search interest for <strong>{fandomName}</strong> by Philippine region
         </CardDescription>
+        
+        {/* Keyword selector if multiple datasets */}
+        {datasets.length > 1 && (
+          <div className="mt-4 flex gap-2">
+            {datasets.map((dataset) => {
+              const maxInterest = Math.max(...dataset.regions.map((r) => r.interestValue), 0);
+              return (
+                <button
+                  key={dataset.keyword}
+                  onClick={() => setSelectedKeyword(dataset.keyword)}
+                  className={`px-3 py-1.5 text-sm rounded-md transition-colors ${
+                    selectedKeyword === dataset.keyword
+                      ? "bg-primary text-primary-foreground"
+                      : "bg-muted hover:bg-muted/80"
+                  }`}
+                >
+                  {dataset.keyword}
+                  {maxInterest > 0 && (
+                    <span className="ml-1.5 text-xs opacity-70">({maxInterest} max)</span>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+        )}
       </CardHeader>
       <CardContent>
         <div className="space-y-6">

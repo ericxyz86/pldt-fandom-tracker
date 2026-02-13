@@ -56,6 +56,7 @@ export async function GET(request: NextRequest) {
     const targetDate = latestRegionalDate[0].date;
 
     // Fetch all regional data for that date
+    // Group by keyword to show both fandom name and artist name results
     const regionalData = await db
       .select()
       .from(googleTrends)
@@ -67,6 +68,15 @@ export async function GET(request: NextRequest) {
         )
       )
       .orderBy(desc(googleTrends.interestValue));
+
+    // Group by keyword
+    const byKeyword: Record<string, typeof regionalData> = {};
+    for (const row of regionalData) {
+      if (!byKeyword[row.keyword]) {
+        byKeyword[row.keyword] = [];
+      }
+      byKeyword[row.keyword].push(row);
+    }
 
     // Map region codes to human-readable names
     const regionNames: Record<string, string> = {
@@ -88,17 +98,21 @@ export async function GET(request: NextRequest) {
       "PH-14": "ARMM",
     };
 
-    const regions = regionalData.map((r) => ({
-      regionCode: r.region,
-      regionName: regionNames[r.region] || r.region,
-      interestValue: r.interestValue,
+    // Convert each keyword's data to the response format
+    const datasets = Object.entries(byKeyword).map(([keyword, rows]) => ({
+      keyword,
+      regions: rows.map((r) => ({
+        regionCode: r.region,
+        regionName: regionNames[r.region] || r.region,
+        interestValue: r.interestValue,
+      })),
     }));
 
     return NextResponse.json({
       fandomId,
       fandomName: fandom.name,
       date: targetDate,
-      regions,
+      datasets, // Array of { keyword, regions[] }
     });
   } catch (error) {
     console.error("[Regional Trends API] Error:", error);

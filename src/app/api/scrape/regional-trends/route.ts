@@ -7,6 +7,44 @@ import { fetchRegionalInterestBatch } from "@/lib/google-trends/regional";
 const API_SECRET = process.env.PLDT_API_SECRET || "";
 
 /**
+ * Extract artist/group name from fandom name.
+ * Examples:
+ * - "BTS ARMY" → "BTS"
+ * - "BINI Blooms" → "BINI"
+ * - "SB19 A'TIN" → "SB19"
+ * - "SEVENTEEN CARAT" → "SEVENTEEN"
+ */
+function extractArtistName(fandomName: string): string {
+  // Common fandom suffixes to remove
+  const suffixes = [
+    " ARMY",
+    " A'TIN",
+    " Blooms",
+    " CARAT",
+    " BLINK",
+    " ONCE",
+    " Fans",
+    " Nation",
+    " Squad",
+    " Stans",
+  ];
+
+  for (const suffix of suffixes) {
+    if (fandomName.endsWith(suffix)) {
+      return fandomName.slice(0, -suffix.length).trim();
+    }
+  }
+
+  // If no suffix found, try to get first word (usually the artist name)
+  const words = fandomName.split(" ");
+  if (words.length > 1) {
+    return words[0];
+  }
+
+  return fandomName;
+}
+
+/**
  * POST /api/scrape/regional-trends
  * 
  * Fetches regional Google Trends data for all tracked fandoms
@@ -49,8 +87,37 @@ export async function POST(request: NextRequest) {
 
     console.log(`[Regional Trends] Processing ${fandomsToProcess.length} fandoms`);
 
-    // Fetch regional data for all fandom names
-    const keywords = fandomsToProcess.map((f) => f.name);
+    // For each fandom, collect data for BOTH:
+    // 1. Fandom name (e.g., "BTS ARMY")
+    // 2. Group/artist name (extracted from fandom name or fandom_group field)
+    const searchTerms: Array<{ fandomId: string; keyword: string; type: "fandom" | "artist" }> = [];
+
+    for (const fandom of fandomsToProcess) {
+      // Always include the fandom name
+      searchTerms.push({
+        fandomId: fandom.id,
+        keyword: fandom.name,
+        type: "fandom",
+      });
+
+      // Try to extract the artist/group name
+      // Pattern: "ARTIST Fandom" → "ARTIST"
+      // Examples: "BTS ARMY" → "BTS", "BINI Blooms" → "BINI", "SB19 A'TIN" → "SB19"
+      const artistName = fandom.fandomGroup || extractArtistName(fandom.name);
+      
+      if (artistName && artistName !== fandom.name) {
+        searchTerms.push({
+          fandomId: fandom.id,
+          keyword: artistName,
+          type: "artist",
+        });
+      }
+    }
+
+    console.log(`[Regional Trends] Collecting data for ${searchTerms.length} search terms (${fandomsToProcess.length} fandoms × 2)`);
+
+    // Fetch regional data for all keywords
+    const keywords = searchTerms.map((t) => t.keyword);
     const results = await fetchRegionalInterestBatch(keywords, "PH", "today 3-m");
 
     let totalRegions = 0;
@@ -58,10 +125,10 @@ export async function POST(request: NextRequest) {
     // Store regional data in database
     for (let i = 0; i < results.length; i++) {
       const result = results[i];
-      const fandom = fandomsToProcess[i];
+      const searchTerm = searchTerms[i];
 
       if (result.error || result.regions.length === 0) {
-        console.log(`[Regional Trends] No data for ${fandom.name}: ${result.error || "empty"}`);
+        console.log(`[Regional Trends] No data for "${searchTerm.keyword}" (${searchTerm.type}): ${result.error || "empty"}`);
         continue;
       }
 
@@ -71,8 +138,8 @@ export async function POST(request: NextRequest) {
       
       for (const region of result.regions) {
         await db.insert(googleTrends).values({
-          fandomId: fandom.id,
-          keyword: fandom.name,
+          fandomId: searchTerm.fandomId,
+          keyword: searchTerm.keyword,
           date: today,
           interestValue: region.interestValue,
           region: region.regionCode,
@@ -81,7 +148,7 @@ export async function POST(request: NextRequest) {
       }
 
       console.log(
-        `[Regional Trends] Stored ${result.regions.length} regions for ${fandom.name}`
+        `[Regional Trends] Stored ${result.regions.length} regions for "${searchTerm.keyword}" (${searchTerm.type})`
       );
     }
 
