@@ -36,7 +36,7 @@ export function middleware(req: NextRequest) {
 
   // Check 1: Bearer token auth (for external API calls, scripts, etc.)
   const authHeader = req.headers.get("authorization");
-  const apiSecret = process.env.API_SECRET;
+  const apiSecret = process.env.PLDT_API_SECRET || process.env.API_SECRET;
 
   if (apiSecret && authHeader === `Bearer ${apiSecret}`) {
     return NextResponse.next();
@@ -67,7 +67,7 @@ export function middleware(req: NextRequest) {
 
   // Neither valid token nor same-origin — reject
   if (!apiSecret) {
-    console.error("[middleware] API_SECRET is not set — blocking external mutating API request");
+    console.error("[middleware] PLDT_API_SECRET is not set — blocking external mutating API request");
   }
 
   return NextResponse.json(

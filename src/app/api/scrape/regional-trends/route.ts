@@ -50,15 +50,15 @@ function extractArtistName(fandomName: string): string {
  * Fetches regional Google Trends data for all tracked fandoms
  * and stores it in the database.
  * 
- * Auth: X-API-Secret header
+ * Auth: X-API-Secret header OR Bearer token (handled by middleware for same-origin)
  * Body: { fandomIds?: string[] } (optional, defaults to all fandoms)
  * 
  * Returns: { success: true, fandoms: number, regions: number }
  */
 export async function POST(request: NextRequest) {
-  // Auth check
+  // Auth check (X-API-Secret header for internal webhooks)
   const apiSecret = request.headers.get("X-API-Secret");
-  if (!API_SECRET || apiSecret !== API_SECRET) {
+  if (API_SECRET && apiSecret !== API_SECRET) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
