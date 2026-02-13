@@ -162,6 +162,22 @@ export async function scrapeAllPlatformsForFandom(
     console.error(`[Scrape] AI insight generation failed for ${fandomId}:`, error);
   }
 
+  // Trigger regional Google Trends collection for this fandom
+  try {
+    const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://pldt-fandom.aiailabs.net';
+    await fetch(`${baseUrl}/api/scrape/regional-trends`, {
+      method: 'POST',
+      headers: {
+        'X-API-Secret': process.env.PLDT_API_SECRET || '',
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ fandomIds: [fandomId] }),
+    });
+    console.log(`[Scrape] Triggered regional trends collection for ${fandomId}`);
+  } catch (error) {
+    console.error(`[Scrape] Regional trends trigger failed for ${fandomId}:`, error);
+  }
+
   return results;
 }
 
@@ -219,6 +235,22 @@ export async function scrapeGoogleTrends(): Promise<{
       results.push({ fandom: fandom.name, keyword: trend.keyword, dataPoints: trend.dataPoints.length });
       succeeded++;
     }
+  }
+
+  // Trigger regional Google Trends collection after comparative scrape
+  try {
+    const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://pldt-fandom.aiailabs.net';
+    await fetch(`${baseUrl}/api/scrape/regional-trends`, {
+      method: 'POST',
+      headers: {
+        'X-API-Secret': process.env.PLDT_API_SECRET || '',
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({}), // Empty body = all fandoms
+    });
+    console.log('[GoogleTrends] Triggered regional trends collection for all fandoms');
+  } catch (error) {
+    console.error('[GoogleTrends] Regional trends trigger failed:', error);
   }
 
   return { total: allFandoms.length, succeeded, failed, results };
@@ -291,6 +323,22 @@ export async function scrapeAllFandoms(): Promise<ScrapeResult[]> {
     await generateAllPageInsights();
   } catch (error) {
     console.error("[Scrape] Page insight generation failed:", error);
+  }
+
+  // Trigger regional Google Trends collection for all fandoms
+  try {
+    const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://pldt-fandom.aiailabs.net';
+    await fetch(`${baseUrl}/api/scrape/regional-trends`, {
+      method: 'POST',
+      headers: {
+        'X-API-Secret': process.env.PLDT_API_SECRET || '',
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({}), // Empty body = all fandoms
+    });
+    console.log('[Scrape] Triggered regional trends collection for all fandoms');
+  } catch (error) {
+    console.error('[Scrape] Regional trends trigger failed:', error);
   }
 
   return allResults;
