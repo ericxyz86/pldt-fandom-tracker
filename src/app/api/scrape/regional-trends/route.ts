@@ -87,30 +87,45 @@ export async function POST(request: NextRequest) {
 
     console.log(`[Regional Trends] Processing ${fandomsToProcess.length} fandoms`);
 
-    // For each fandom, collect data for BOTH:
-    // 1. Fandom name (e.g., "BTS ARMY")
-    // 2. Group/artist name (extracted from fandom name or fandom_group field)
+    // For each fandom, reuse the EXISTING keywords from google_trends table
+    // (these are already disambiguated, e.g., "ALAMAT pboy group", "SEVENTEEN kpop")
     const searchTerms: Array<{ fandomId: string; keyword: string; type: "fandom" | "artist" }> = [];
 
     for (const fandom of fandomsToProcess) {
-      // Always include the fandom name
-      searchTerms.push({
-        fandomId: fandom.id,
-        keyword: fandom.name,
-        type: "fandom",
-      });
+      // Get existing keywords for this fandom from the google_trends table
+      const existingKeywords = await db
+        .select({ keyword: googleTrends.keyword })
+        .from(googleTrends)
+        .where(eq(googleTrends.fandomId, fandom.id))
+        .groupBy(googleTrends.keyword);
 
-      // Try to extract the artist/group name
-      // Pattern: "ARTIST Fandom" → "ARTIST"
-      // Examples: "BTS ARMY" → "BTS", "BINI Blooms" → "BINI", "SB19 A'TIN" → "SB19"
-      const artistName = fandom.fandomGroup || extractArtistName(fandom.name);
-      
-      if (artistName && artistName !== fandom.name) {
+      if (existingKeywords.length > 0) {
+        // Use existing keywords (already disambiguated)
+        for (const { keyword } of existingKeywords) {
+          // Determine type based on keyword vs fandom name
+          const type = keyword === fandom.name ? "fandom" : "artist";
+          searchTerms.push({
+            fandomId: fandom.id,
+            keyword,
+            type,
+          });
+        }
+      } else {
+        // Fallback: no existing keywords, generate new ones
         searchTerms.push({
           fandomId: fandom.id,
-          keyword: artistName,
-          type: "artist",
+          keyword: fandom.name,
+          type: "fandom",
         });
+
+        const artistName = fandom.fandomGroup || extractArtistName(fandom.name);
+        if (artistName && artistName !== fandom.name) {
+          searchTerms.push({
+            fandomId: fandom.id,
+            keyword: artistName,
+            type: "artist",
+          });
+        }
       }
     }
 
