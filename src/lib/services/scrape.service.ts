@@ -30,6 +30,18 @@ export async function scrapeFandomPlatform(
   fandomId: string,
   platform: Platform
 ): Promise<ScrapeResult> {
+  // Reddit is scraped via local push endpoint (Mac Mini residential IP)
+  // because Reddit blocks all datacenter/Apify IPs
+  if (platform === "reddit") {
+    return {
+      fandomId,
+      platform,
+      success: true,
+      itemsCount: 0,
+      error: "Reddit data arrives via /api/scrape/reddit-push (local scraper)",
+    };
+  }
+
   const actorConfig = actorConfigs[platform];
   if (!actorConfig) {
     return {
