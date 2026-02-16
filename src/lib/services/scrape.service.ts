@@ -1,11 +1,14 @@
 import { db } from "@/lib/db";
 import { fandoms, fandomPlatforms, scrapeRuns, googleTrends as googleTrends_table } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
-import { runActor } from "@/lib/apify/client";
-import { actorConfigs } from "@/lib/apify/actors";
-import { ingestDataset, updateScrapeRun } from "@/lib/services/ingest.service";
+import { scrapeWithFailover } from "@/lib/providers";
+import { ingestRawItems, ingestDataset, updateScrapeRun } from "@/lib/services/ingest.service";
 import { generateFandomInsights, generateAllFandomInsights, generateAllPageInsights } from "@/lib/services/ai.service";
 import type { Platform } from "@/types/fandom";
+
+// Keep legacy imports for the trigger endpoint (unchanged)
+export { runActor } from "@/lib/apify/client";
+export { actorConfigs } from "@/lib/apify/actors";
 
 const DELAY_BETWEEN_BATCHES_MS = 2000;
 const FANDOMS_PER_BATCH = 3;
@@ -20,39 +23,21 @@ export interface ScrapeResult {
   success: boolean;
   itemsCount: number;
   error?: string;
+  /** Which provider was used: "apify" | "sociavault" */
+  source?: string;
+  /** Whether failover was triggered */
+  failoverTriggered?: boolean;
 }
 
 /**
  * Scrape a single platform for a single fandom.
- * Chains trigger + ingest in one call.
+ * Uses the failover provider system: tries primary provider first,
+ * then automatically falls back to secondary on failure.
  */
 export async function scrapeFandomPlatform(
   fandomId: string,
   platform: Platform
 ): Promise<ScrapeResult> {
-  // Reddit is scraped via local push endpoint (Mac Mini residential IP)
-  // because Reddit blocks all datacenter/Apify IPs
-  if (platform === "reddit") {
-    return {
-      fandomId,
-      platform,
-      success: true,
-      itemsCount: 0,
-      error: "Reddit data arrives via /api/scrape/reddit-push (local scraper)",
-    };
-  }
-
-  const actorConfig = actorConfigs[platform];
-  if (!actorConfig) {
-    return {
-      fandomId,
-      platform,
-      success: false,
-      itemsCount: 0,
-      error: `No actor configured for platform: ${platform}`,
-    };
-  }
-
   // Look up fandom
   const fandomRows = await db
     .select()
@@ -74,56 +59,102 @@ export async function scrapeFandomPlatform(
   const platformEntry = platformRows.find((p) => p.platform === platform);
   const handle = platformEntry?.handle || fandom.name;
 
-  // Insert scrape run record first so we can update it on failure
+  // Insert scrape run record
   const [scrapeRun] = await db
     .insert(scrapeRuns)
     .values({
-      actorId: actorConfig.actorId,
+      actorId: `failover/${platform}`,
       fandomId: fandom.id,
-      platform: actorConfig.platform,
+      platform,
       status: "running",
       startedAt: new Date(),
     })
     .returning({ id: scrapeRuns.id });
 
   try {
-    const input = actorConfig.buildInput({
+    console.log(`[Scrape] ${fandom.name} (${platform}) — using failover provider system`);
+
+    // Use the failover system
+    const result = await scrapeWithFailover(platform, {
       handle,
       keyword: fandom.name,
       limit: 20,
     });
 
-    console.log(
-      `[Scrape] Running ${actorConfig.actorId} for ${fandom.name} (${platform})`
-    );
+    if (!result.success || result.items.length === 0) {
+      // Mark as failed but don't throw
+      await db
+        .update(scrapeRuns)
+        .set({
+          status: "failed",
+          finishedAt: new Date(),
+          actorId: `failover/${platform}/${result.source}`,
+        })
+        .where(eq(scrapeRuns.id, scrapeRun.id))
+        .catch((e) => console.error(`[Scrape] Failed to update scrape run:`, e));
 
-    // Run actor (blocking — waits for Apify to finish)
-    const datasetId = await runActor(actorConfig.actorId, input);
+      // For Reddit, this is expected sometimes — data also comes via reddit-push
+      if (platform === "reddit") {
+        return {
+          fandomId,
+          platform,
+          success: true,
+          itemsCount: 0,
+          source: result.source,
+          failoverTriggered: result.failoverTriggered,
+          error: result.error || "No results (Reddit data also arrives via /api/scrape/reddit-push)",
+        };
+      }
 
-    // Update scrape run with the Apify dataset ID
+      return {
+        fandomId,
+        platform,
+        success: false,
+        itemsCount: 0,
+        source: result.source,
+        failoverTriggered: result.failoverTriggered,
+        error: result.error,
+      };
+    }
+
+    // Update scrape run with the actual provider used
     await db
       .update(scrapeRuns)
-      .set({ apifyRunId: datasetId })
+      .set({
+        actorId: `failover/${platform}/${result.source}`,
+        apifyRunId: result.datasetId || null,
+      })
       .where(eq(scrapeRuns.id, scrapeRun.id));
 
-    // Ingest the results immediately
-    const result = await ingestDataset({
-      datasetId,
+    // Ingest the results
+    const ingestResult = await ingestRawItems({
+      rawItems: result.items,
       fandomId: fandom.id,
       platform,
-      actorId: actorConfig.actorId,
+      source: result.source,
     });
+
+    // Update scrape run status
+    await db
+      .update(scrapeRuns)
+      .set({
+        status: ingestResult.success ? "succeeded" : "failed",
+        finishedAt: new Date(),
+        itemsCount: ingestResult.itemsCount,
+      })
+      .where(eq(scrapeRuns.id, scrapeRun.id));
 
     return {
       fandomId,
       platform,
-      success: result.success,
-      itemsCount: result.itemsCount,
+      success: ingestResult.success,
+      itemsCount: ingestResult.itemsCount,
+      source: result.source,
+      failoverTriggered: result.failoverTriggered,
     };
   } catch (error) {
     console.error(`[Scrape] Failed for ${fandom.name} (${platform}):`, error);
 
-    // Mark the scrape run as failed so it doesn't stay stuck in "running"
     await db
       .update(scrapeRuns)
       .set({ status: "failed", finishedAt: new Date() })
@@ -151,12 +182,11 @@ export async function scrapeAllPlatformsForFandom(
     .from(fandomPlatforms)
     .where(eq(fandomPlatforms.fandomId, fandomId));
 
-  // Only scrape platforms that have actor configs (skip googleTrends key)
   const platformKeys = platformRows
     .map((p) => p.platform as Platform)
-    .filter((p) => actorConfigs[p] && actorConfigs[p].platform === p);
+    .filter((p) => p !== undefined);
 
-  // Run all platforms in parallel — each is a separate Apify actor
+  // Run all platforms in parallel
   const settled = await Promise.allSettled(
     platformKeys.map((platform) => scrapeFandomPlatform(fandomId, platform))
   );
@@ -270,7 +300,6 @@ export async function scrapeGoogleTrends(): Promise<{
 
 /**
  * Simplify a fandom name into a disambiguated Google-searchable keyword.
- * Adds context words for ambiguous terms (e.g., "SEVENTEEN kpop" not just "SEVENTEEN").
  */
 function simplifyKeyword(name: string): string {
   const mappings: Record<string, string> = {
@@ -293,7 +322,6 @@ function simplifyKeyword(name: string): string {
 
   if (mappings[name]) return mappings[name];
 
-  // Check SB19 specifically (has apostrophe issues)
   if (name.includes("SB19")) return "SB19";
   if (name.includes("PLUUS")) return "PLUUS band";
   if (name.includes("MLBB") || name.includes("MPL")) return "MPL Philippines";
@@ -303,7 +331,6 @@ function simplifyKeyword(name: string): string {
   if (name.includes("BookTok")) return "BookTok Philippines";
   if (name.includes("Cosplay")) return "Cosplay Philippines";
 
-  // Default: first two words max
   const cleaned = name.split(/[/\\(]/)[0].trim();
   const words = cleaned.split(/\s+/);
   return words.slice(0, 2).join(" ");
@@ -324,7 +351,6 @@ export async function scrapeAllFandoms(): Promise<ScrapeResult[]> {
     );
     allResults.push(...batchResults.flat());
 
-    // Delay between batches to avoid overwhelming Apify
     if (i + FANDOMS_PER_BATCH < allFandoms.length) {
       await delay(DELAY_BETWEEN_BATCHES_MS);
     }
@@ -346,7 +372,7 @@ export async function scrapeAllFandoms(): Promise<ScrapeResult[]> {
         'X-API-Secret': process.env.PLDT_API_SECRET || '',
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({}), // Empty body = all fandoms
+      body: JSON.stringify({}),
     });
     console.log('[Scrape] Triggered regional trends collection for all fandoms');
   } catch (error) {

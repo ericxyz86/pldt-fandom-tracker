@@ -72,7 +72,11 @@ async function searchReddit(keyword: string, limit: number = ITEMS_PER_FANDOM): 
   const url = `https://www.reddit.com/search.json?q=${encodeURIComponent(keyword)}&sort=new&limit=${limit}&t=week`;
 
   const res = await fetch(url, {
-    headers: { "User-Agent": USER_AGENT },
+    headers: {
+      "User-Agent": USER_AGENT,
+      "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+      "Accept-Language": "en-US,en;q=0.5",
+    },
   });
 
   if (!res.ok) {

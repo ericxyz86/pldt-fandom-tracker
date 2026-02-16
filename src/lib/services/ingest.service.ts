@@ -26,6 +26,25 @@ export interface IngestResult {
   error?: string;
 }
 
+/**
+ * Ingest raw items directly (used by the failover provider system).
+ * Skips the Apify dataset fetch step.
+ */
+export async function ingestRawItems(params: {
+  rawItems: Record<string, unknown>[];
+  fandomId: string;
+  platform: Platform;
+  source: string;
+}): Promise<IngestResult> {
+  const { rawItems, fandomId, platform: validPlatform, source } = params;
+
+  if (rawItems.length === 0) {
+    return { success: true, itemsCount: 0, influencerCount: 0, discoveries: [] };
+  }
+
+  return ingestItems(rawItems, fandomId, validPlatform, source);
+}
+
 export async function ingestDataset(params: {
   datasetId: string;
   fandomId: string;
@@ -47,6 +66,22 @@ export async function ingestDataset(params: {
     return { success: true, itemsCount: inserted, influencerCount: 0, discoveries: [] };
   }
 
+  const result = await ingestItems(rawItems, fandomId, validPlatform, "apify");
+
+  await updateScrapeRun(datasetId, "succeeded", result.itemsCount);
+
+  return result;
+}
+
+/**
+ * Core ingestion logic shared by both ingestDataset and ingestRawItems.
+ */
+async function ingestItems(
+  rawItems: Record<string, unknown>[],
+  fandomId: string,
+  validPlatform: Platform,
+  source: string
+): Promise<IngestResult> {
   let totalInserted = 0;
 
   // 1. Normalize and insert content items (upsert by externalId)
@@ -110,7 +145,6 @@ export async function ingestDataset(params: {
   // Compute growth rate by comparing against previous snapshot
   let growthRate = 0;
   if (normalizedMetrics.followers > 0) {
-    // Compare against previous snapshot from a DIFFERENT date (not today)
     const previousSnapshot = await db
       .select({ followers: metricSnapshots.followers, date: metricSnapshots.date })
       .from(metricSnapshots)
@@ -180,7 +214,6 @@ export async function ingestDataset(params: {
   }
 
   // 4. Extract influencer data from raw items
-  // Require: >1k followers, 5+ posts in batch, and Philippines location if location is available
   const MIN_POSTS = 5;
   const PH_PATTERNS = /\b(philippines|filipino|filipina|pinoy|pinay|manila|cebu|davao|quezon|makati|taguig|pasig|bgc|ph)\b/i;
 
@@ -188,7 +221,6 @@ export async function ingestDataset(params: {
   const validInfluencers = normalizedInfluencers.filter((i) => {
     if (!i.username || i.followers <= 1000) return false;
     if (i.postCount < MIN_POSTS) return false;
-    // If location data exists, require it to be Philippines-related
     if (i.location && !PH_PATTERNS.test(i.location)) return false;
     return true;
   });
@@ -222,7 +254,6 @@ export async function ingestDataset(params: {
         relevanceScore: "0",
       });
     } else {
-      // Update with latest data from scrape
       await db
         .update(influencers)
         .set(data)
@@ -239,7 +270,7 @@ export async function ingestDataset(params: {
     validPlatform
   );
 
-  await updateScrapeRun(datasetId, "succeeded", totalInserted);
+  console.log(`[Ingest] ${validPlatform} (${source}): ${totalInserted} new items, ${validInfluencers.length} influencers`);
 
   return {
     success: true,
