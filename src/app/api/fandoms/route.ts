@@ -7,6 +7,7 @@ import { getAllFandoms } from "@/lib/services/fandom.service";
 import { scrapeAllPlatformsForFandom } from "@/lib/services/scrape.service";
 import { researchSingleFandom } from "@/lib/services/ai.service";
 import type { Platform } from "@/types/fandom";
+import { VALID_PLATFORMS } from "@/lib/constants";
 
 export const dynamic = "force-dynamic";
 
@@ -150,7 +151,7 @@ export async function POST(req: NextRequest) {
       .returning();
 
     // Insert platform entries
-    const validPlatforms: Platform[] = ["instagram", "tiktok", "facebook", "youtube", "twitter", "reddit"];
+    const validPlatforms = VALID_PLATFORMS;
     const insertedPlatforms: Array<{ platform: string; handle: string }> = [];
     for (const p of platformsToInsert) {
       // Validate platform type

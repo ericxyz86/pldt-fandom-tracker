@@ -25,13 +25,9 @@ export async function GET() {
   return NextResponse.json({
     apify: {
       configured: !!apifyToken,
-      tokenPrefix: apifyToken ? apifyToken.slice(0, 10) + "..." : null,
     },
     database: {
       connected: dbConnected,
-      url: databaseUrl
-        ? databaseUrl.replace(/\/\/([^:]+):([^@]+)@/, "//$1:***@")
-        : null,
       fandomCount,
     },
   });

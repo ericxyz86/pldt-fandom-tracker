@@ -295,7 +295,7 @@ function mapInfluencer(i: typeof influencers.$inferSelect): Influencer {
   };
 }
 
-export async function getAllInfluencers() {
+export async function getAllInfluencers(limit = 50, offset = 0) {
   const rows = await db
     .select({
       influencer: influencers,
@@ -305,7 +305,8 @@ export async function getAllInfluencers() {
     .from(influencers)
     .innerJoin(fandoms, eq(influencers.fandomId, fandoms.id))
     .orderBy(desc(influencers.relevanceScore))
-    .limit(100);
+    .limit(limit)
+    .offset(offset);
 
   return rows.map((r) => ({
     ...mapInfluencer(r.influencer),
@@ -314,7 +315,7 @@ export async function getAllInfluencers() {
   }));
 }
 
-export async function getAllTrends() {
+export async function getAllTrends(limit = 1000, offset = 0) {
   const rows = await db
     .select({
       trend: googleTrends,
@@ -323,7 +324,9 @@ export async function getAllTrends() {
     })
     .from(googleTrends)
     .innerJoin(fandoms, eq(googleTrends.fandomId, fandoms.id))
-    .orderBy(googleTrends.date);
+    .orderBy(googleTrends.date)
+    .limit(limit)
+    .offset(offset);
 
   return rows.map((r) => ({
     id: r.trend.id,
@@ -359,7 +362,9 @@ export async function getRecommendations(): Promise<Recommendation[]> {
         views: contentItems.views,
         hashtags: contentItems.hashtags,
       })
-      .from(contentItems),
+      .from(contentItems)
+      .orderBy(desc(contentItems.publishedAt))
+      .limit(5000),
     // Get platform-level metrics: content count and engagement by platform
     db
       .select({

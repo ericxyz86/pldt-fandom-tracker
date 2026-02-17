@@ -72,7 +72,7 @@ export async function POST(request: NextRequest) {
         await db.insert(scrapeRuns).values({
           actorId: "google-trends-upload",
           fandomId,
-          platform: "instagram", // Matches schema constraint
+          platform: null,
           status: "succeeded",
           startedAt: new Date(),
           finishedAt: new Date(),

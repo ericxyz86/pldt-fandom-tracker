@@ -3,6 +3,7 @@ import { db } from "@/lib/db";
 import { fandoms, fandomPlatforms } from "@/lib/db/schema";
 import { eq, and } from "drizzle-orm";
 import { getFandomBySlug } from "@/lib/services/fandom.service";
+import { VALID_PLATFORMS } from "@/lib/constants";
 
 export const dynamic = "force-dynamic";
 
@@ -54,6 +55,18 @@ export async function PUT(
     }
 
     const id = rows[0].id;
+
+    // Validate platform values
+    if (platforms && Array.isArray(platforms)) {
+      for (const p of platforms) {
+        if (p.platform && !VALID_PLATFORMS.includes(p.platform)) {
+          return NextResponse.json(
+            { error: `Invalid platform: ${p.platform}` },
+            { status: 400 }
+          );
+        }
+      }
+    }
 
     // Build update fields
     const updates: Record<string, unknown> = { updatedAt: new Date() };
@@ -108,6 +121,10 @@ export async function PATCH(
 
     if (!platform) {
       return NextResponse.json({ error: "platform required" }, { status: 400 });
+    }
+
+    if (!VALID_PLATFORMS.includes(platform)) {
+      return NextResponse.json({ error: `Invalid platform: ${platform}` }, { status: 400 });
     }
 
     // Look up fandom by slug

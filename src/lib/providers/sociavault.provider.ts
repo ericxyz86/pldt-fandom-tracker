@@ -22,7 +22,9 @@ function getMonitorProxyUrl(): string {
 }
 
 function getMonitorApiKey(): string {
-  return process.env.MONITOR_API_KEY || "sv-ailabs-2026";
+  const key = process.env.MONITOR_API_KEY;
+  if (!key) throw new Error("MONITOR_API_KEY environment variable is required");
+  return key;
 }
 
 /**

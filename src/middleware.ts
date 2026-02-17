@@ -64,9 +64,13 @@ export function middleware(req: NextRequest) {
     }
 
     if (referer) {
-      const refererOrigin = new URL(referer).origin;
-      if (allowedOrigins.includes(refererOrigin)) {
-        return NextResponse.next();
+      try {
+        const refererOrigin = new URL(referer).origin;
+        if (allowedOrigins.includes(refererOrigin)) {
+          return NextResponse.next();
+        }
+      } catch {
+        // Malformed referer header — ignore and fall through to rejection
       }
     }
   }

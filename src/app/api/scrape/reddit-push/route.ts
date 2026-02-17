@@ -61,6 +61,13 @@ export async function POST(req: NextRequest) {
     );
   }
 
+  if (items.length > 1000) {
+    return NextResponse.json(
+      { error: "Too many items. Maximum 1000 per request." },
+      { status: 400 }
+    );
+  }
+
   // Verify fandom exists
   const fandomRows = await db
     .select()

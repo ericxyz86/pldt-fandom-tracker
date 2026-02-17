@@ -3,10 +3,11 @@ import { db } from "@/lib/db";
 import { aiDiscoveredFandoms, fandoms, fandomPlatforms } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
 import type { Platform } from "@/types/fandom";
+import { VALID_PLATFORMS } from "@/lib/constants";
 
 export const dynamic = "force-dynamic";
 
-const validPlatforms = new Set(["instagram", "tiktok", "facebook", "youtube", "twitter", "reddit"]);
+const validPlatforms = new Set<string>(VALID_PLATFORMS);
 
 function parseFollowerCount(str: string): number {
   const match = str.match(/([\d.]+)\s*(M|K)?/i);

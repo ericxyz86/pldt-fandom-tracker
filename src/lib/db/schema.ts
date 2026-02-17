@@ -7,6 +7,8 @@ import {
   decimal,
   date,
   pgEnum,
+  uniqueIndex,
+  index,
 } from "drizzle-orm/pg-core";
 
 export const fandomTierEnum = pgEnum("fandom_tier", [
@@ -61,7 +63,7 @@ export const fandoms = pgTable("fandoms", {
 export const fandomPlatforms = pgTable("fandom_platforms", {
   id: uuid("id").defaultRandom().primaryKey(),
   fandomId: uuid("fandom_id")
-    .references(() => fandoms.id)
+    .references(() => fandoms.id, { onDelete: "cascade" })
     .notNull(),
   platform: platformEnum("platform").notNull(),
   handle: text("handle").notNull(),
@@ -69,12 +71,14 @@ export const fandomPlatforms = pgTable("fandom_platforms", {
   url: text("url"),
   verified: text("verified"),
   verifiedAt: timestamp("verified_at"),
-});
+}, (table) => [
+  uniqueIndex("fandom_platforms_fandom_platform_idx").on(table.fandomId, table.platform),
+]);
 
 export const metricSnapshots = pgTable("metric_snapshots", {
   id: uuid("id").defaultRandom().primaryKey(),
   fandomId: uuid("fandom_id")
-    .references(() => fandoms.id)
+    .references(() => fandoms.id, { onDelete: "cascade" })
     .notNull(),
   platform: platformEnum("platform").notNull(),
   date: date("date").notNull(),
@@ -93,12 +97,14 @@ export const metricSnapshots = pgTable("metric_snapshots", {
   avgLikes: integer("avg_likes").default(0).notNull(),
   avgComments: integer("avg_comments").default(0).notNull(),
   avgShares: integer("avg_shares").default(0).notNull(),
-});
+}, (table) => [
+  uniqueIndex("metric_snapshots_fandom_platform_date_idx").on(table.fandomId, table.platform, table.date),
+]);
 
 export const contentItems = pgTable("content_items", {
   id: uuid("id").defaultRandom().primaryKey(),
   fandomId: uuid("fandom_id")
-    .references(() => fandoms.id)
+    .references(() => fandoms.id, { onDelete: "cascade" })
     .notNull(),
   platform: platformEnum("platform").notNull(),
   externalId: text("external_id").notNull(),
@@ -112,12 +118,15 @@ export const contentItems = pgTable("content_items", {
   publishedAt: timestamp("published_at"),
   scrapedAt: timestamp("scraped_at").defaultNow().notNull(),
   hashtags: text("hashtags").array().default([]).notNull(),
-});
+}, (table) => [
+  uniqueIndex("content_items_fandom_external_id_idx").on(table.fandomId, table.externalId),
+  index("content_items_fandom_published_at_idx").on(table.fandomId, table.publishedAt),
+]);
 
 export const influencers = pgTable("influencers", {
   id: uuid("id").defaultRandom().primaryKey(),
   fandomId: uuid("fandom_id")
-    .references(() => fandoms.id)
+    .references(() => fandoms.id, { onDelete: "cascade" })
     .notNull(),
   platform: platformEnum("platform").notNull(),
   username: text("username").notNull(),
@@ -138,18 +147,23 @@ export const influencers = pgTable("influencers", {
   })
     .default("0")
     .notNull(),
-});
+}, (table) => [
+  uniqueIndex("influencers_fandom_platform_username_idx").on(table.fandomId, table.platform, table.username),
+  index("influencers_fandom_platform_idx").on(table.fandomId, table.platform),
+]);
 
 export const googleTrends = pgTable("google_trends", {
   id: uuid("id").defaultRandom().primaryKey(),
   fandomId: uuid("fandom_id")
-    .references(() => fandoms.id)
+    .references(() => fandoms.id, { onDelete: "cascade" })
     .notNull(),
   keyword: text("keyword").notNull(),
   date: date("date").notNull(),
   interestValue: integer("interest_value").default(0).notNull(),
   region: text("region").default("PH").notNull(),
-});
+}, (table) => [
+  uniqueIndex("google_trends_fandom_keyword_date_idx").on(table.fandomId, table.keyword, table.date),
+]);
 
 export const aiPageInsights = pgTable("ai_page_insights", {
   id: uuid("id").defaultRandom().primaryKey(),
@@ -190,7 +204,7 @@ export const aiDiscoveredFandoms = pgTable("ai_discovered_fandoms", {
   verificationStatus: text("verification_status").default("pending").notNull(),
   verifiedAt: timestamp("verified_at"),
   status: discoveryStatusEnum("status").default("discovered").notNull(),
-  trackedFandomId: uuid("tracked_fandom_id").references(() => fandoms.id),
+  trackedFandomId: uuid("tracked_fandom_id").references(() => fandoms.id, { onDelete: "cascade" }),
   generatedAt: timestamp("generated_at").notNull(),
   dismissedAt: timestamp("dismissed_at"),
 });
@@ -198,11 +212,13 @@ export const aiDiscoveredFandoms = pgTable("ai_discovered_fandoms", {
 export const scrapeRuns = pgTable("scrape_runs", {
   id: uuid("id").defaultRandom().primaryKey(),
   actorId: text("actor_id").notNull(),
-  fandomId: uuid("fandom_id").references(() => fandoms.id),
+  fandomId: uuid("fandom_id").references(() => fandoms.id, { onDelete: "cascade" }),
   platform: platformEnum("platform"),
   status: scrapeStatusEnum("status").default("pending").notNull(),
   startedAt: timestamp("started_at").defaultNow().notNull(),
   finishedAt: timestamp("finished_at"),
   itemsCount: integer("items_count").default(0).notNull(),
   apifyRunId: text("apify_run_id"),
-});
+}, (table) => [
+  index("scrape_runs_apify_run_id_idx").on(table.apifyRunId),
+]);

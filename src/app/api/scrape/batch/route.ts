@@ -1,14 +1,34 @@
 import { NextRequest, NextResponse } from "next/server";
 import { after } from "next/server";
 import { db } from "@/lib/db";
-import { fandoms } from "@/lib/db/schema";
-import { eq } from "drizzle-orm";
+import { fandoms, scrapeRuns } from "@/lib/db/schema";
+import { eq, and, sql } from "drizzle-orm";
 import {
   scrapeAllPlatformsForFandom,
   scrapeAllFandoms,
 } from "@/lib/services/scrape.service";
 
+async function hasActiveScrape(): Promise<boolean> {
+  const active = await db
+    .select({ count: sql<number>`count(*)` })
+    .from(scrapeRuns)
+    .where(
+      and(
+        eq(scrapeRuns.status, "running"),
+        sql`${scrapeRuns.startedAt} > now() - interval '30 minutes'`
+      )
+    );
+  return Number(active[0].count) > 0;
+}
+
 export async function POST(req: NextRequest) {
+  if (await hasActiveScrape()) {
+    return NextResponse.json(
+      { error: "A scrape is already running. Please wait for it to complete." },
+      { status: 409 }
+    );
+  }
+
   const body = await req.json().catch(() => ({}));
   const { fandomSlug } = body;
 

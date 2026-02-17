@@ -65,7 +65,9 @@ CREATE TABLE "fandom_platforms" (
 	"platform" "platform" NOT NULL,
 	"handle" text NOT NULL,
 	"followers" integer DEFAULT 0 NOT NULL,
-	"url" text
+	"url" text,
+	"verified" text,
+	"verified_at" timestamp
 );
 --> statement-breakpoint
 CREATE TABLE "fandoms" (
@@ -138,10 +140,18 @@ CREATE TABLE "scrape_runs" (
 	"apify_run_id" text
 );
 --> statement-breakpoint
-ALTER TABLE "ai_discovered_fandoms" ADD CONSTRAINT "ai_discovered_fandoms_tracked_fandom_id_fandoms_id_fk" FOREIGN KEY ("tracked_fandom_id") REFERENCES "public"."fandoms"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "content_items" ADD CONSTRAINT "content_items_fandom_id_fandoms_id_fk" FOREIGN KEY ("fandom_id") REFERENCES "public"."fandoms"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "fandom_platforms" ADD CONSTRAINT "fandom_platforms_fandom_id_fandoms_id_fk" FOREIGN KEY ("fandom_id") REFERENCES "public"."fandoms"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "google_trends" ADD CONSTRAINT "google_trends_fandom_id_fandoms_id_fk" FOREIGN KEY ("fandom_id") REFERENCES "public"."fandoms"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "influencers" ADD CONSTRAINT "influencers_fandom_id_fandoms_id_fk" FOREIGN KEY ("fandom_id") REFERENCES "public"."fandoms"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "metric_snapshots" ADD CONSTRAINT "metric_snapshots_fandom_id_fandoms_id_fk" FOREIGN KEY ("fandom_id") REFERENCES "public"."fandoms"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "scrape_runs" ADD CONSTRAINT "scrape_runs_fandom_id_fandoms_id_fk" FOREIGN KEY ("fandom_id") REFERENCES "public"."fandoms"("id") ON DELETE no action ON UPDATE no action;
+ALTER TABLE "ai_discovered_fandoms" ADD CONSTRAINT "ai_discovered_fandoms_tracked_fandom_id_fandoms_id_fk" FOREIGN KEY ("tracked_fandom_id") REFERENCES "public"."fandoms"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "content_items" ADD CONSTRAINT "content_items_fandom_id_fandoms_id_fk" FOREIGN KEY ("fandom_id") REFERENCES "public"."fandoms"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "fandom_platforms" ADD CONSTRAINT "fandom_platforms_fandom_id_fandoms_id_fk" FOREIGN KEY ("fandom_id") REFERENCES "public"."fandoms"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "google_trends" ADD CONSTRAINT "google_trends_fandom_id_fandoms_id_fk" FOREIGN KEY ("fandom_id") REFERENCES "public"."fandoms"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "influencers" ADD CONSTRAINT "influencers_fandom_id_fandoms_id_fk" FOREIGN KEY ("fandom_id") REFERENCES "public"."fandoms"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "metric_snapshots" ADD CONSTRAINT "metric_snapshots_fandom_id_fandoms_id_fk" FOREIGN KEY ("fandom_id") REFERENCES "public"."fandoms"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "scrape_runs" ADD CONSTRAINT "scrape_runs_fandom_id_fandoms_id_fk" FOREIGN KEY ("fandom_id") REFERENCES "public"."fandoms"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+CREATE UNIQUE INDEX "content_items_fandom_external_id_idx" ON "content_items" USING btree ("fandom_id","external_id");--> statement-breakpoint
+CREATE INDEX "content_items_fandom_published_at_idx" ON "content_items" USING btree ("fandom_id","published_at");--> statement-breakpoint
+CREATE UNIQUE INDEX "fandom_platforms_fandom_platform_idx" ON "fandom_platforms" USING btree ("fandom_id","platform");--> statement-breakpoint
+CREATE UNIQUE INDEX "google_trends_fandom_keyword_date_idx" ON "google_trends" USING btree ("fandom_id","keyword","date");--> statement-breakpoint
+CREATE UNIQUE INDEX "influencers_fandom_platform_username_idx" ON "influencers" USING btree ("fandom_id","platform","username");--> statement-breakpoint
+CREATE INDEX "influencers_fandom_platform_idx" ON "influencers" USING btree ("fandom_id","platform");--> statement-breakpoint
+CREATE UNIQUE INDEX "metric_snapshots_fandom_platform_date_idx" ON "metric_snapshots" USING btree ("fandom_id","platform","date");--> statement-breakpoint
+CREATE INDEX "scrape_runs_apify_run_id_idx" ON "scrape_runs" USING btree ("apify_run_id");

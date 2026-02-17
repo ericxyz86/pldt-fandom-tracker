@@ -78,7 +78,11 @@ export async function POST(req: NextRequest) {
     // Parse data rows
     let inserted = 0;
     const dataRows = lines.slice(headerIdx + 1);
-    
+
+    if (dataRows.length > 10000) {
+      return NextResponse.json({ error: "Too many rows. Maximum 10,000 per upload." }, { status: 400 });
+    }
+
     for (const line of dataRows) {
       const cols = parseCSVRow(line);
       if (cols.length < 2) continue;

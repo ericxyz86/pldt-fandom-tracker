@@ -8,7 +8,7 @@ import {
   googleTrends,
   scrapeRuns,
 } from "@/lib/db/schema";
-import { eq, and, desc, sql } from "drizzle-orm";
+import { eq, and, desc, sql, inArray } from "drizzle-orm";
 import { getDatasetItems } from "@/lib/apify/client";
 import {
   normalizeContent,
@@ -84,22 +84,27 @@ async function ingestItems(
 ): Promise<IngestResult> {
   let totalInserted = 0;
 
-  // 1. Normalize and insert content items (upsert by externalId)
+  // 1. Normalize and batch insert content items (dedup by externalId)
   const normalizedContent = normalizeContent(validPlatform, rawItems);
-  for (const item of normalizedContent) {
-    const existing = await db
-      .select({ id: contentItems.id })
+
+  if (normalizedContent.length > 0) {
+    // Batch lookup: find all existing externalIds in one query
+    const allExternalIds = normalizedContent.map((item) => item.externalId);
+    const existingRows = await db
+      .select({ externalId: contentItems.externalId })
       .from(contentItems)
       .where(
         and(
           eq(contentItems.fandomId, fandomId),
-          eq(contentItems.externalId, item.externalId)
+          inArray(contentItems.externalId, allExternalIds)
         )
-      )
-      .limit(1);
+      );
+    const existingIds = new Set(existingRows.map((r) => r.externalId));
 
-    if (existing.length === 0) {
-      await db.insert(contentItems).values({
+    // Filter to only new items and batch insert
+    const newItems = normalizedContent
+      .filter((item) => !existingIds.has(item.externalId))
+      .map((item) => ({
         fandomId,
         platform: validPlatform,
         externalId: item.externalId,
@@ -116,8 +121,11 @@ async function ingestItems(
           return isNaN(d.getTime()) ? null : d;
         })(),
         hashtags: item.hashtags,
-      });
-      totalInserted++;
+      }));
+
+    if (newItems.length > 0) {
+      await db.insert(contentItems).values(newItems);
+      totalInserted = newItems.length;
     }
   }
 
@@ -224,41 +232,33 @@ async function ingestItems(
     if (i.location && !PH_PATTERNS.test(i.location)) return false;
     return true;
   });
+  // Batch upsert influencers
   for (const inf of validInfluencers) {
-    const existing = await db
-      .select({ id: influencers.id })
-      .from(influencers)
-      .where(
-        and(
-          eq(influencers.fandomId, fandomId),
-          eq(influencers.username, inf.username)
-        )
-      )
-      .limit(1);
-
-    const data = {
-      fandomId,
-      platform: validPlatform,
-      username: inf.username,
-      displayName: inf.displayName,
-      followers: inf.followers,
-      engagementRate: String(inf.engagementRate),
-      profileUrl: inf.profileUrl,
-      avatarUrl: inf.avatarUrl,
-      bio: inf.bio,
-    };
-
-    if (existing.length === 0) {
-      await db.insert(influencers).values({
-        ...data,
+    await db
+      .insert(influencers)
+      .values({
+        fandomId,
+        platform: validPlatform,
+        username: inf.username,
+        displayName: inf.displayName,
+        followers: inf.followers,
+        engagementRate: String(inf.engagementRate),
+        profileUrl: inf.profileUrl,
+        avatarUrl: inf.avatarUrl,
+        bio: inf.bio,
         relevanceScore: "0",
+      })
+      .onConflictDoUpdate({
+        target: [influencers.fandomId, influencers.platform, influencers.username],
+        set: {
+          displayName: inf.displayName,
+          followers: inf.followers,
+          engagementRate: String(inf.engagementRate),
+          profileUrl: inf.profileUrl,
+          avatarUrl: inf.avatarUrl,
+          bio: inf.bio,
+        },
       });
-    } else {
-      await db
-        .update(influencers)
-        .set(data)
-        .where(eq(influencers.id, existing[0].id));
-    }
   }
 
   // 5. Analyze batch for potential new fandoms
@@ -286,6 +286,15 @@ async function ingestGoogleTrends(
 ): Promise<number> {
   let inserted = 0;
 
+  // Cache fandom rows for matching (avoids N+1 query per item)
+  let cachedFandomRows: typeof fandoms.$inferSelect[] | null = null;
+  async function getFandomRows() {
+    if (!cachedFandomRows) {
+      cachedFandomRows = await db.select().from(fandoms);
+    }
+    return cachedFandomRows;
+  }
+
   for (const item of rawItems) {
     const searchTerm = (item.searchTerm || item.keyword || "") as string;
     const timelineData = (item.interestOverTime || item.timelineData || []) as Array<{
@@ -297,7 +306,7 @@ async function ingestGoogleTrends(
 
     let matchedFandomId = fandomId;
     if (!matchedFandomId) {
-      const fandomRows = await db.select().from(fandoms);
+      const fandomRows = await getFandomRows();
       const match = fandomRows.find(
         (f) =>
           searchTerm.toLowerCase().includes(f.name.toLowerCase()) ||
@@ -310,6 +319,15 @@ async function ingestGoogleTrends(
 
     if (!matchedFandomId) continue;
 
+    // Batch collect all valid trend points for this search term
+    const batchValues: {
+      fandomId: string;
+      keyword: string;
+      date: string;
+      interestValue: number;
+      region: string;
+    }[] = [];
+
     for (const point of timelineData) {
       const date = point.date || point.time || "";
       const value = point.value?.[0] ?? 0;
@@ -318,14 +336,19 @@ async function ingestGoogleTrends(
       const parsedDate = parseGoogleTrendsDate(date);
       if (!parsedDate) continue;
 
-      await db.insert(googleTrends).values({
+      batchValues.push({
         fandomId: matchedFandomId,
         keyword: searchTerm,
         date: parsedDate,
         interestValue: value,
         region: "PH",
       });
-      inserted++;
+    }
+
+    // Batch insert all trend points for this search term
+    if (batchValues.length > 0) {
+      await db.insert(googleTrends).values(batchValues);
+      inserted += batchValues.length;
     }
   }
 
@@ -370,7 +393,7 @@ export async function updateScrapeRun(
       .update(scrapeRuns)
       .set({ status, finishedAt: new Date(), itemsCount })
       .where(eq(scrapeRuns.apifyRunId, datasetId));
-  } catch {
-    // Scrape run record might not exist
+  } catch (e) {
+    console.warn("[updateScrapeRun] Failed to update scrape run:", datasetId, e);
   }
 }

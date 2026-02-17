@@ -20,6 +20,14 @@ export async function POST(req: NextRequest) {
     );
   }
 
+  const validPlatforms = ["instagram", "tiktok", "facebook", "youtube", "twitter", "reddit"];
+  if (platform && !validPlatforms.includes(platform)) {
+    return NextResponse.json(
+      { error: `Invalid platform: ${platform}` },
+      { status: 400 }
+    );
+  }
+
   try {
     const result = await ingestDataset({
       datasetId,
