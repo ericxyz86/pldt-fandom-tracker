@@ -1,0 +1,2 @@
+DROP INDEX "google_trends_fandom_keyword_date_idx";--> statement-breakpoint
+CREATE UNIQUE INDEX "google_trends_fandom_keyword_date_region_idx" ON "google_trends" USING btree ("fandom_id","keyword","date","region");

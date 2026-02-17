@@ -162,7 +162,7 @@ export const googleTrends = pgTable("google_trends", {
   interestValue: integer("interest_value").default(0).notNull(),
   region: text("region").default("PH").notNull(),
 }, (table) => [
-  uniqueIndex("google_trends_fandom_keyword_date_idx").on(table.fandomId, table.keyword, table.date),
+  uniqueIndex("google_trends_fandom_keyword_date_region_idx").on(table.fandomId, table.keyword, table.date, table.region),
 ]);
 
 export const aiPageInsights = pgTable("ai_page_insights", {

@@ -162,6 +162,9 @@ export async function POST(request: NextRequest) {
           date: today,
           interestValue: region.interestValue,
           region: region.regionCode,
+        }).onConflictDoUpdate({
+          target: [googleTrends.fandomId, googleTrends.keyword, googleTrends.date, googleTrends.region],
+          set: { interestValue: region.interestValue },
         });
         totalRegions++;
       }

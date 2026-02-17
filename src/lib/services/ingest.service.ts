@@ -347,7 +347,10 @@ async function ingestGoogleTrends(
 
     // Batch insert all trend points for this search term
     if (batchValues.length > 0) {
-      await db.insert(googleTrends).values(batchValues);
+      await db.insert(googleTrends).values(batchValues).onConflictDoUpdate({
+        target: [googleTrends.fandomId, googleTrends.keyword, googleTrends.date, googleTrends.region],
+        set: { interestValue: sql`excluded.interest_value` },
+      });
       inserted += batchValues.length;
     }
   }
