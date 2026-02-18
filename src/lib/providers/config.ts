@@ -4,8 +4,13 @@ import type { PlatformProviderConfig } from "./types";
 /**
  * Per-platform provider priority configuration.
  * 
- * - Reddit: SociaVault first (Apify IPs blocked by Reddit)
- * - All others: Apify first (working), SociaVault fallback
+ * SociaVault is PRIMARY for ALL platforms.
+ * Apify serves as fallback only.
+ * 
+ * Rationale (Feb 2026):
+ * - Apify actors returning 0 items since Feb 12 (silent failures)
+ * - SociaVault tested and working for all 6 platforms
+ * - Reddit: Apify IPs blocked industry-wide, SociaVault only option
  */
 export const platformProviderConfig: Record<Platform, PlatformProviderConfig> = {
   reddit: {
@@ -13,23 +18,23 @@ export const platformProviderConfig: Record<Platform, PlatformProviderConfig> = 
     secondary: "apify",
   },
   tiktok: {
-    primary: "apify",
-    secondary: "sociavault",
+    primary: "sociavault",
+    secondary: "apify",
   },
   instagram: {
-    primary: "apify",
-    secondary: "sociavault",
+    primary: "sociavault",
+    secondary: "apify",
   },
   youtube: {
-    primary: "apify",
-    secondary: "sociavault",
+    primary: "sociavault",
+    secondary: "apify",
   },
   twitter: {
-    primary: "apify",
-    secondary: "sociavault",
+    primary: "sociavault",
+    secondary: "apify",
   },
   facebook: {
-    primary: "apify",
-    secondary: "sociavault",
+    primary: "sociavault",
+    secondary: "apify",
   },
 };
