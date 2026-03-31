@@ -4,6 +4,8 @@ import { fandoms, fandomPlatforms, scrapeRuns } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
 import { runActor } from "@/lib/apify/client";
 import { actorConfigs } from "@/lib/apify/actors";
+import { ingestDataset } from "@/lib/services/ingest.service";
+import type { Platform } from "@/types/fandom";
 
 export async function POST(req: NextRequest) {
   const body = await req.json();
@@ -30,7 +32,7 @@ export async function POST(req: NextRequest) {
   const fandom = fandomRows[0];
 
   // Get the platform config
-  const platformKey = platform || "tiktok";
+  const platformKey = (platform || "tiktok") as Platform;
   const actorConfig = actorConfigs[platformKey];
 
   if (!actorConfig) {
@@ -63,21 +65,41 @@ export async function POST(req: NextRequest) {
     const datasetId = await runActor(actorConfig.actorId, input);
 
     // Log the scrape run
-    await db.insert(scrapeRuns).values({
+    const [scrapeRun] = await db.insert(scrapeRuns).values({
       actorId: actorConfig.actorId,
       fandomId: fandom.id,
       platform: actorConfig.platform,
       status: "running",
       startedAt: new Date(),
       apifyRunId: datasetId,
+    }).returning({ id: scrapeRuns.id });
+
+    // Ingest the dataset results into the database
+    const ingestResult = await ingestDataset({
+      datasetId,
+      fandomId: fandom.id,
+      platform: platformKey,
+      actorId: actorConfig.actorId,
     });
+
+    // Update scrape run with final status
+    await db
+      .update(scrapeRuns)
+      .set({
+        status: ingestResult.success ? "succeeded" : "failed",
+        finishedAt: new Date(),
+        itemsCount: ingestResult.itemsCount,
+      })
+      .where(eq(scrapeRuns.id, scrapeRun.id));
 
     return NextResponse.json({
       success: true,
-      message: `Scrape started for ${fandom.name} on ${platformKey}`,
+      message: `Scrape completed for ${fandom.name} on ${platformKey}`,
       fandomId: fandom.id,
       platform: platformKey,
       datasetId,
+      itemsIngested: ingestResult.itemsCount,
+      influencersFound: ingestResult.influencerCount,
     });
   } catch (error) {
     console.error("[Scrape] Failed:", error);
