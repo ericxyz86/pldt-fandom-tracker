@@ -9,7 +9,8 @@ import type { Platform } from "@/types/fandom";
 
 export async function POST(req: NextRequest) {
   const body = await req.json();
-  const { fandomSlug, platform } = body;
+  const { fandomSlug, platform, limit: requestLimit } = body;
+  const limit = Math.min(Math.max(Number(requestLimit) || 20, 1), 100);
 
   if (!fandomSlug) {
     return NextResponse.json(
@@ -55,7 +56,7 @@ export async function POST(req: NextRequest) {
     const input = actorConfig.buildInput({
       handle,
       keyword: fandom.name,
-      limit: 20,
+      limit,
     });
 
     console.log(
