@@ -6,6 +6,11 @@ export interface ScrapeParams {
   handle: string;
   keyword?: string;
   limit?: number;
+  videoUrl?: string;
+  commentId?: string;
+  cursor?: string;
+  continuationToken?: string;
+  repliesContinuationToken?: string;
 }
 
 export interface ProviderResult {
@@ -15,6 +20,8 @@ export interface ProviderResult {
   error?: string;
   /** Apify dataset ID if applicable */
   datasetId?: string;
+  /** Optional pagination tokens for follow-up fetches */
+  pagination?: Record<string, unknown>;
 }
 
 export interface ScrapeProvider {

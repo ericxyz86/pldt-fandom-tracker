@@ -118,6 +118,35 @@ function indexedObjectToArray(obj: unknown): Record<string, unknown>[] {
     .filter((v) => v && typeof v === "object");
 }
 
+function toNumber(value: unknown): number {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function toIsoDate(value: unknown): string | null {
+  if (!value) return null;
+
+  if (typeof value === "number") {
+    const ms = value > 1e12 ? value : value * 1000;
+    return new Date(ms).toISOString();
+  }
+
+  if (typeof value === "string") {
+    const numeric = Number(value);
+    if (Number.isFinite(numeric) && value.trim() !== "") {
+      const ms = numeric > 1e12 ? numeric : numeric * 1000;
+      return new Date(ms).toISOString();
+    }
+
+    const parsed = new Date(value);
+    if (!Number.isNaN(parsed.getTime())) {
+      return parsed.toISOString();
+    }
+  }
+
+  return null;
+}
+
 // ─────────────────────────────────────────────────────────
 // Reddit (existing implementation, unchanged)
 // ─────────────────────────────────────────────────────────
@@ -255,6 +284,57 @@ async function scrapeTikTok(params: ScrapeParams): Promise<ProviderResult> {
   console.log(`[SociaVault] Got ${items.length} TikTok items for "${handle}" (1 profile + ${items.length - 1} videos)`);
 
   return { success: items.length > 0, items, source: "sociavault" };
+}
+
+function normalizeTikTokCommentReplies(
+  data: Record<string, unknown>,
+  params: ScrapeParams
+): ProviderResult {
+  const rawReplies = data.replies || data.comments || data.items || data.commentReplies || data.replyList || data;
+  const replies = indexedObjectToArray(rawReplies);
+
+  const items = replies.map((reply) => ({
+    id: reply.cid || reply.comment_id || reply.commentId || reply.id || "",
+    externalId: reply.cid || reply.comment_id || reply.commentId || reply.id || "",
+    text: reply.text || reply.comment || reply.content || reply.replyText || "",
+    url: params.videoUrl || "",
+    likes: toNumber(reply.digg_count || reply.diggCount || reply.like_count || reply.likeCount),
+    comments: toNumber(reply.reply_comment_total || reply.replyCount || reply.reply_count),
+    shares: 0,
+    views: 0,
+    publishedAt: toIsoDate(reply.create_time || reply.createTime || reply.publishedAt),
+    parentCommentId: params.commentId || null,
+    authorUsername:
+      reply.user?.unique_id ||
+      reply.user?.uniqueId ||
+      reply.user?.username ||
+      reply.author?.unique_id ||
+      reply.author?.username ||
+      "",
+    authorDisplayName:
+      reply.user?.nickname ||
+      reply.user?.display_name ||
+      reply.author?.nickname ||
+      reply.author?.displayName ||
+      "",
+    authorAvatar:
+      reply.user?.avatar_thumb?.url_list?.[0] ||
+      reply.user?.avatarMedium ||
+      reply.author?.avatar ||
+      "",
+    rawPlatform: "tiktok",
+    rawType: "comment-reply",
+  }));
+
+  return {
+    success: items.length > 0,
+    items,
+    source: "sociavault",
+    pagination: {
+      cursor: data.cursor || data.nextCursor || data.next_cursor || null,
+      hasMore: Boolean(data.has_more || data.hasMore),
+    },
+  };
 }
 
 // ─────────────────────────────────────────────────────────
@@ -513,6 +593,58 @@ async function scrapeYouTube(params: ScrapeParams): Promise<ProviderResult> {
   return { success: items.length > 0, items, source: "sociavault" };
 }
 
+function normalizeYouTubeCommentReplies(data: Record<string, unknown>): ProviderResult {
+  const rawReplies = data.replies || data.comments || data.items || data.commentReplies || data;
+  const replies = indexedObjectToArray(rawReplies);
+
+  const items = replies.map((reply) => ({
+    id: reply.commentId || reply.id || reply.replyId || "",
+    externalId: reply.commentId || reply.id || reply.replyId || "",
+    text:
+      reply.contentText ||
+      reply.text ||
+      reply.content ||
+      reply.comment ||
+      reply.commentText ||
+      "",
+    url: reply.url || reply.commentUrl || "",
+    likes: toNumber(reply.likeCount || reply.likes || reply.voteCount),
+    comments: 0,
+    shares: 0,
+    views: 0,
+    publishedAt:
+      toIsoDate(reply.publishedAt || reply.publishedTime || reply.publishedTimeText) ||
+      null,
+    parentCommentId: reply.parentCommentId || null,
+    authorUsername: reply.authorChannelHandle || reply.authorHandle || reply.author?.username || "",
+    authorDisplayName:
+      reply.authorDisplayName ||
+      reply.authorText ||
+      reply.author?.displayName ||
+      "",
+    authorAvatar:
+      reply.authorThumbnail?.thumbnails?.[0]?.url ||
+      reply.author?.avatar ||
+      "",
+    rawPlatform: "youtube",
+    rawType: "comment-reply",
+  }));
+
+  return {
+    success: items.length > 0,
+    items,
+    source: "sociavault",
+    pagination: {
+      continuationToken:
+        data.continuationToken ||
+        data.nextContinuationToken ||
+        data.next_continuation_token ||
+        null,
+      hasMore: Boolean(data.hasMore || data.has_more),
+    },
+  };
+}
+
 // ─────────────────────────────────────────────────────────
 // Twitter / X
 // ─────────────────────────────────────────────────────────
@@ -674,6 +806,89 @@ async function scrapeFacebook(params: ScrapeParams): Promise<ProviderResult> {
   console.log(`[SociaVault] Got ${items.length} Facebook posts for "${handle}"`);
 
   return { success: items.length > 0, items, source: "sociavault" };
+}
+
+export async function scrapeSociavaultCommentReplies(
+  platform: Platform,
+  params: ScrapeParams
+): Promise<ProviderResult> {
+  try {
+    if (platform === "tiktok") {
+      if (!params.commentId || !params.videoUrl) {
+        return {
+          success: false,
+          items: [],
+          source: "sociavault",
+          error: "TikTok comment replies require commentId and videoUrl",
+        };
+      }
+
+      const queryParams: Record<string, string> = {
+        comment_id: params.commentId,
+        url: params.videoUrl,
+      };
+
+      if (params.cursor) {
+        queryParams.cursor = params.cursor;
+      }
+
+      if (params.limit) {
+        queryParams.count = String(params.limit);
+      }
+
+      const data = await callSociavault(
+        "/tiktok/comment-replies",
+        queryParams,
+        `TikTok comment replies for ${params.commentId}`
+      );
+
+      return normalizeTikTokCommentReplies(data, params);
+    }
+
+    if (platform === "youtube") {
+      const token = params.continuationToken || params.repliesContinuationToken;
+      if (!token) {
+        return {
+          success: false,
+          items: [],
+          source: "sociavault",
+          error: "YouTube comment replies require repliesContinuationToken or continuationToken",
+        };
+      }
+
+      const queryParams: Record<string, string> = params.continuationToken
+        ? { continuationToken: params.continuationToken }
+        : { repliesContinuationToken: params.repliesContinuationToken as string };
+
+      if (params.limit) {
+        queryParams.count = String(params.limit);
+      }
+
+      const data = await callSociavault(
+        "/youtube/video/comment-replies",
+        queryParams,
+        `YouTube comment replies for token ${token}`
+      );
+
+      return normalizeYouTubeCommentReplies(data);
+    }
+
+    return {
+      success: false,
+      items: [],
+      source: "sociavault",
+      error: `Comment replies not supported for platform: ${platform}`,
+    };
+  } catch (error) {
+    const errorMsg = error instanceof Error ? error.message : "Unknown SociaVault comment replies error";
+    console.error(`[SociaVault] Comment replies failed (${platform}):`, errorMsg);
+    return {
+      success: false,
+      items: [],
+      source: "sociavault",
+      error: errorMsg,
+    };
+  }
 }
 
 // ─────────────────────────────────────────────────────────
