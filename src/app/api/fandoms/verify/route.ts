@@ -15,8 +15,25 @@ interface HandleCheck {
   error?: string;
 }
 
+function cleanHandle(handle: string): string {
+  return handle.replace(/^@/, "").trim();
+}
+
+function isSimpleHandle(handle: string): boolean {
+  return /^[A-Za-z0-9._-]{1,50}$/.test(handle);
+}
+
+function isRedditSubreddit(handle: string): boolean {
+  return /^[A-Za-z0-9_]{3,21}$/.test(handle);
+}
+
+function invalidHandle(platform: string, handle: string): HandleCheck {
+  return { platform, handle, valid: false, error: "Invalid handle" };
+}
+
 async function checkInstagram(handle: string): Promise<HandleCheck> {
-  const clean = handle.replace("@", "");
+  const clean = cleanHandle(handle);
+  if (!isSimpleHandle(clean)) return invalidHandle("instagram", clean);
   try {
     const res = await fetch(
       `https://www.instagram.com/api/v1/users/web_profile_info/?username=${clean}`,
@@ -61,7 +78,8 @@ async function checkInstagram(handle: string): Promise<HandleCheck> {
 }
 
 async function checkTikTok(handle: string): Promise<HandleCheck> {
-  const clean = handle.replace("@", "");
+  const clean = cleanHandle(handle);
+  if (!isSimpleHandle(clean)) return invalidHandle("tiktok", clean);
   try {
     const res = await fetch(`https://www.tiktok.com/@${clean}`, {
       headers: {
@@ -100,7 +118,8 @@ async function checkTikTok(handle: string): Promise<HandleCheck> {
 }
 
 async function checkYouTube(handle: string): Promise<HandleCheck> {
-  const clean = handle.replace("@", "");
+  const clean = cleanHandle(handle);
+  if (!isSimpleHandle(clean)) return invalidHandle("youtube", clean);
   try {
     // Try multiple URL formats
     const urls = [
@@ -179,7 +198,8 @@ function parseSubCount(text: string): number | undefined {
 }
 
 async function checkTwitter(handle: string): Promise<HandleCheck> {
-  const clean = handle.replace("@", "");
+  const clean = cleanHandle(handle);
+  if (!isSimpleHandle(clean)) return invalidHandle("twitter", clean);
   
   // Try multiple Twitter viewer mirrors
   const mirrors = [
@@ -209,7 +229,6 @@ async function checkTwitter(handle: string): Promise<HandleCheck> {
       
       // Try multiple patterns for follower extraction
       let followers: number | undefined;
-      let displayName: string | undefined;
       
       // Pattern 1: "955K Followers" or "1,234,567 Followers"
       const followerMatches = html.match(/([\d,.]+[KMB]?)\s*Followers/gi);
@@ -233,7 +252,7 @@ async function checkTwitter(handle: string): Promise<HandleCheck> {
       }
       
       const nameMatch = html.match(/<title>([^<(]+)/);
-      displayName = nameMatch ? nameMatch[1].trim().replace(/ \(@.*/, "").replace(/ \|.*/, "").replace(/ \/.*/, "") : clean;
+      const displayName = nameMatch ? nameMatch[1].trim().replace(/ \(@.*/, "").replace(/ \|.*/, "").replace(/ \/.*/, "") : clean;
       
       if (followers && followers > 0) {
         console.log(`[Verify Twitter] @${clean} via ${new URL(url).hostname}: ${followers} followers`);
@@ -254,7 +273,8 @@ async function checkTwitter(handle: string): Promise<HandleCheck> {
 }
 
 async function checkFacebook(handle: string): Promise<HandleCheck> {
-  const clean = handle.replace("@", "");
+  const clean = cleanHandle(handle);
+  if (!isSimpleHandle(clean)) return invalidHandle("facebook", clean);
   try {
     const res = await fetch(`https://www.facebook.com/${clean}`, {
       headers: {
@@ -303,6 +323,7 @@ async function checkFacebook(handle: string): Promise<HandleCheck> {
 
 async function checkReddit(handle: string): Promise<HandleCheck> {
   const clean = handle.replace(/^(r\/|\/r\/)/, "");
+  if (!isRedditSubreddit(clean)) return invalidHandle("reddit", clean);
   try {
     const res = await fetch(`https://old.reddit.com/r/${clean}.json?limit=1`, {
       headers: {
@@ -319,14 +340,24 @@ async function checkReddit(handle: string): Promise<HandleCheck> {
   }
 }
 
-const checkers: Record<string, (handle: string) => Promise<HandleCheck>> = {
-  instagram: checkInstagram,
-  tiktok: checkTikTok,
-  youtube: checkYouTube,
-  twitter: checkTwitter,
-  facebook: checkFacebook,
-  reddit: checkReddit,
-};
+async function checkPlatform(platform: string, handle: string): Promise<HandleCheck | null> {
+  switch (platform) {
+    case "instagram":
+      return checkInstagram(handle);
+    case "tiktok":
+      return checkTikTok(handle);
+    case "youtube":
+      return checkYouTube(handle);
+    case "twitter":
+      return checkTwitter(handle);
+    case "facebook":
+      return checkFacebook(handle);
+    case "reddit":
+      return checkReddit(handle);
+    default:
+      return null;
+  }
+}
 
 // POST /api/fandoms/verify — verify all handles for a fandom and persist results
 export async function POST(req: NextRequest) {
@@ -374,11 +405,11 @@ export async function POST(req: NextRequest) {
     // Run all checks in parallel
     const results = await Promise.all(
       toCheck.map(async ({ platform, handle }) => {
-        const checker = checkers[platform];
-        if (!checker) {
+        const result = await checkPlatform(platform, handle);
+        if (!result) {
           return { platform, handle, valid: true, error: "No checker for platform" } as HandleCheck;
         }
-        return checker(handle);
+        return result;
       })
     );
 
@@ -437,9 +468,9 @@ export async function GET(req: NextRequest) {
 
       const results = await Promise.all(
         platforms.map(async ({ platform, handle }) => {
-          const checker = checkers[platform];
-          if (!checker) return { platform, handle, valid: true, error: "No checker" } as HandleCheck;
-          return checker(handle);
+          const result = await checkPlatform(platform, handle);
+          if (!result) return { platform, handle, valid: true, error: "No checker" } as HandleCheck;
+          return result;
         })
       );
 

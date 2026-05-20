@@ -83,7 +83,7 @@ export async function POST(request: NextRequest) {
         succeeded++;
         results.push({ fandomSlug, keyword, dataPoints: points.length });
       } catch (err) {
-        console.error(`[TrendsUpload] Failed for ${fandomSlug}:`, err);
+        console.error("[TrendsUpload] Failed for fandom upload", { fandomSlug, err });
         results.push({
           fandomSlug,
           keyword,
